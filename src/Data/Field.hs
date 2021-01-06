@@ -1,3 +1,6 @@
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 {- |
     License     :  BSD-style
     Module      :  Data.Field
@@ -8,88 +11,150 @@
 -}
 module Data.Field
 (
-  -- * Export
-  module Data.Record,
+  -- * Simple field
+  SField (..), SOField,
   
-  -- * Field and property
-  Field (..), Prop,
+  -- * Field
+  Field (..), OField,
   
-  -- ** Field creation
-  field, fieldGet, fieldModify,
-  
-  -- * Field protection
-  Field', Prop', field'
+  -- * Observable field
+  Observe (..), observe
 )
 where
 
-import Data.Functor
-import Data.Record
+import qualified Data.List as L
+
+import Data.Property
 
 default ()
 
 --------------------------------------------------------------------------------
 
--- | @'Prop' m d@ is 'Field' that is already associated with a value.
-type Prop = RecordProp Field
-
--- | @'Prop'' m d@ is 'Field'' that is already associated with a value.
-type Prop' = RecordProp Field'
-
---------------------------------------------------------------------------------
-
--- | Field provides the generalized interface for abstract field access.
-data Field m d a = Field
+-- | Simple field, which contain only getter and setter.
+data SField m record a = SField
   {
-    -- | Return field value
-    getter   :: d -> m a,
-    -- | Set new field value
-    setter   :: d -> a -> m (),
-    -- | Apply function to old value and set it to field, return new value
-    modifier :: d -> (a -> a) -> m a
+    -- | Get field value
+    getSField :: record -> m a,
+    -- | Set field value
+    setSField :: record -> a -> m ()
   }
 
+-- | 'Observable' 'SField'.
+type SOField = Observe SField
+
+instance GetProp    SField record where getRecord = getSField
+instance SetProp    SField record where setRecord = setSField
+instance ModifyProp SField record
+
+instance (SwitchProp Field record) => SwitchProp SField record
+  where
+    switchRecord = switchRecord . toField
+
+instance (InsertProp Field record many) => InsertProp SField record many
+  where
+    prependRecord = prependRecord . toField
+    appendRecord  = appendRecord  . toField
+
+instance (DeleteProp Field record many) => DeleteProp SField record many
+  where
+    deleteRecord = deleteRecord . toField
+
+toField :: (Monad m) => SField m record a -> Field m record a
+toField sfield@(SField g s) = Field g s (modifyRecord sfield)
+
 --------------------------------------------------------------------------------
 
-instance RecordField Field
+-- | Normal field, which contain getter, setter and modifier.
+data Field m record a = Field
+  {
+    -- | Get field value
+    getField    :: record -> m a,
+    -- | Set field value
+    setField    :: record -> a -> m (),
+    -- | Modify field value
+    modifyField :: record -> (a -> a) -> m a
+  }
+
+-- | 'Observable' 'Field'.
+type OField = Observe Field
+
+instance GetProp    Field record where getRecord    = getField
+instance SetProp    Field record where setRecord    = setField
+instance ModifyProp Field record where modifyRecord = modifyField
+
+instance InsertProp Field record []
   where
-    get' = flip getter
-    
-    set' d = mapM_ $ \ prop -> case prop of
-      f :=  v -> void $ setter f d v
-      f ::= u -> void $ setter f d (u d)
-      f :~  u -> void $ modifier f d u
-      f ::~ u -> void $ modifier f d (u d)
+    prependRecord field record x = modifyRecord field record (x :)
+    appendRecord  field record x = modifyRecord field record (++ [x])
 
--- | Simple field, 'modifier' is 'getter' and 'setter' composition.
-field :: (Monad m) => (d -> m a) -> (d -> a -> m ()) -> Field m d a
-field s w = Field s w (\ d u -> do v <- s d; let v' = u v in v' <$ w d v')
-
--- | Read-only field. Note that 'setter' do nothing, but 'modifier' touch field.
-fieldGet :: (Monad m) => (d -> m a) -> Field m d a
-fieldGet w = Field w (\ _ _ -> return ()) (\ d _ -> w d)
-
--- | Modify-based field. Note what 'getter' writes to field.
-fieldModify :: (Monad m) => (d -> (a -> a) -> m a) -> Field m d a
-fieldModify m = Field (flip m id) (\ d -> void . m d . const) m
+instance DeleteProp Field record []
+  where
+    deleteRecord field record = modifyRecord field record . L.delete
 
 --------------------------------------------------------------------------------
 
--- | 'Field'' is protected 'Field'.
-newtype Field' m d a = Field' (Field m d a)
+-- | Simple field observer, which can run some handlers after each action.
+data Observe field m record a = Observe
+  {
+    -- | Field to observe.
+    observed :: field m record a,
+    -- | 'set' observer
+    onGet    :: record -> a -> m (),
+    -- | 'set' observer
+    onSet    :: record -> a -> m (),
+    -- | ''switch', modify', 'prepend', 'append' and 'delete' observer
+    onModify :: record -> m ()
+  }
 
-field' :: Field m d a -> Field' m d a
-field' =  Field'
+observe :: (Monad m) => field m record a -> Observe field m record a
+observe field =
+  let nothing = \ _ _ -> return ()
+  in  Observe field nothing nothing (\ _ -> return ())
 
-instance RecordField Field'
+instance (SwitchProp field a) => SwitchProp (Observe field) a
   where
-    get' d (Field' f) = get' d f
-    
-    set' d = mapM_ $ \ prop -> case prop of
-      Field' f :=  v -> void $ setter f d v
-      Field' f ::= u -> void $ setter f d (u d)
-      Field' f :~  u -> void $ modifier f d u
-      Field' f ::~ u -> void $ modifier f d (u d)
+    switchRecord field record = do
+      switchRecord (observed field) record
+      onModify field record
 
+instance (GetProp field record) => GetProp (Observe field) record
+  where
+    getRecord field record = do
+      res <- getRecord (observed field) record
+      onGet field record res
+      return res
+
+instance (SetProp field record) => SetProp (Observe field) record
+  where
+    setRecord field record val = do
+      setRecord (observed field) record val
+      onSet field record val
+
+instance (ModifyProp field record) => ModifyProp (Observe field) record
+  where
+    modifyRecord field record upd = do
+      res <- modifyRecord (observed field) record upd
+      onModify field record
+      return res
+
+instance (InsertProp field record many) => InsertProp (Observe field) record many
+  where
+    prependRecord field record x = do
+      res <- prependRecord (observed field) record x
+      onModify field record
+      return res
+    
+    appendRecord field record x = do
+      res <- appendRecord (observed field) record x
+      onModify field record
+      return res
+
+instance (DeleteProp field record many) => DeleteProp (Observe field) record many
+  where
+    deleteRecord field record x = do
+      res <- deleteRecord (observed field) record x
+      onModify field record
+      return res
 
 
 

@@ -35,11 +35,6 @@ Library
   ghc-options:      -O2 -Wall
   
   exposed-modules:
-    Data.Field.Watch
+    Data.Property
     Data.Field
-    
-    Data.Record
-
-
-
 
