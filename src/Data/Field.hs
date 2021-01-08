@@ -25,8 +25,11 @@ where
 import qualified Data.List as L
 
 import Data.Property
+import Data.Functor
 
 default ()
+
+infixr 0 ...
 
 --------------------------------------------------------------------------------
 
@@ -34,9 +37,9 @@ default ()
 data SField m record a = SField
   {
     -- | Get field value
-    getSField :: record -> m a,
+    getSField :: !(record -> m a),
     -- | Set field value
-    setSField :: record -> a -> m ()
+    setSField :: !(record -> a -> m ())
   }
 
 -- | 'Observable' 'SField'.
@@ -48,19 +51,21 @@ instance ModifyProp SField record
 
 instance (SwitchProp Field record) => SwitchProp SField record
   where
-    switchRecord = switchRecord . toField
+    switchRecord n = switchRecord n . toField
+    incRecord      = incRecord . toField
+    decRecord      = decRecord . toField
 
 instance (InsertProp Field record many) => InsertProp SField record many
   where
-    prependRecord = prependRecord . toField
-    appendRecord  = appendRecord  . toField
+    prependRecord x = prependRecord x . toField
+    appendRecord  x = appendRecord  x . toField
 
 instance (DeleteProp Field record many) => DeleteProp SField record many
   where
-    deleteRecord = deleteRecord . toField
+    deleteRecord x = deleteRecord x . toField
 
 toField :: (Monad m) => SField m record a -> Field m record a
-toField sfield@(SField g s) = Field g s (modifyRecord sfield)
+toField sfield@(SField g s) = Field g s $ flip (`modifyRecord` sfield)
 
 --------------------------------------------------------------------------------
 
@@ -68,28 +73,38 @@ toField sfield@(SField g s) = Field g s (modifyRecord sfield)
 data Field m record a = Field
   {
     -- | Get field value
-    getField    :: record -> m a,
+    getField    :: !(record -> m a),
     -- | Set field value
-    setField    :: record -> a -> m (),
+    setField    :: !(record -> a -> m ()),
     -- | Modify field value
-    modifyField :: record -> (a -> a) -> m a
+    modifyField :: !(record -> (a -> a) -> m a)
   }
 
 -- | 'Observable' 'Field'.
 type OField = Observe Field
 
-instance GetProp    Field record where getRecord    = getField
-instance SetProp    Field record where setRecord    = setField
-instance ModifyProp Field record where modifyRecord = modifyField
+instance GetProp    Field record where getRecord = getField
+instance SetProp    Field record where setRecord = setField
+
+instance ModifyProp Field record
+  where
+    modifyRecord upd field record = modifyField field record upd
+
+instance (IsSwitch switch) => SwitchProp Field switch
+  where
+    incRecord = void ... modifyRecord switchInc
+    decRecord = void ... modifyRecord switchDec
+    
+    switchRecord n = void ... modifyRecord (switch n)
 
 instance InsertProp Field record []
   where
-    prependRecord field record x = modifyRecord field record (x :)
-    appendRecord  field record x = modifyRecord field record (++ [x])
+    appendRecord  = modifyRecord . (flip (++) . pure)
+    prependRecord = modifyRecord . (:)
 
 instance DeleteProp Field record []
   where
-    deleteRecord field record = modifyRecord field record . L.delete
+    deleteRecord = modifyRecord . L.delete
 
 --------------------------------------------------------------------------------
 
@@ -106,6 +121,7 @@ data Observe field m record a = Observe
     onModify :: record -> m ()
   }
 
+-- Create field with default observers.
 observe :: (Monad m) => field m record a -> Observe field m record a
 observe field =
   let nothing = \ _ _ -> return ()
@@ -113,8 +129,16 @@ observe field =
 
 instance (SwitchProp field a) => SwitchProp (Observe field) a
   where
-    switchRecord field record = do
-      switchRecord (observed field) record
+    incRecord field record = do
+      incRecord (observed field) record
+      onModify field record
+    
+    decRecord field record = do
+      decRecord (observed field) record
+      onModify field record
+    
+    switchRecord n field record = do
+      switchRecord n (observed field) record
       onModify field record
 
 instance (GetProp field record) => GetProp (Observe field) record
@@ -132,29 +156,35 @@ instance (SetProp field record) => SetProp (Observe field) record
 
 instance (ModifyProp field record) => ModifyProp (Observe field) record
   where
-    modifyRecord field record upd = do
-      res <- modifyRecord (observed field) record upd
+    modifyRecord upd field record = do
+      res <- modifyRecord upd (observed field) record
       onModify field record
       return res
 
 instance (InsertProp field record many) => InsertProp (Observe field) record many
   where
-    prependRecord field record x = do
-      res <- prependRecord (observed field) record x
+    prependRecord x field record = do
+      res <- prependRecord x (observed field) record
       onModify field record
       return res
     
-    appendRecord field record x = do
-      res <- appendRecord (observed field) record x
+    appendRecord x field record = do
+      res <- appendRecord x (observed field) record
       onModify field record
       return res
 
 instance (DeleteProp field record many) => DeleteProp (Observe field) record many
   where
-    deleteRecord field record x = do
-      res <- deleteRecord (observed field) record x
+    deleteRecord x field record = do
+      res <- deleteRecord x (observed field) record
       onModify field record
       return res
+
+--------------------------------------------------------------------------------
+
+(...) :: (d -> c) -> (a -> b -> d) -> a -> b -> c
+(...) =  (.) . (.)
+
 
 
 

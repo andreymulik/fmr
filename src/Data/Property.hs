@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances, BangPatterns #-}
 {-# LANGUAGE DefaultSignatures, GADTs #-}
 
 {- |
@@ -21,7 +22,10 @@ module Data.Property
   SetProp (..),
   
   -- ** Modify
-  ModifyProp (..), SwitchProp (..), InsertProp (..), DeleteProp (..)
+  ModifyProp (..), InsertProp (..), DeleteProp (..),
+  
+  -- *** Switch
+  SwitchProp (..), IsSwitch (..)
 )
 where
 
@@ -34,9 +38,17 @@ default ()
 -- | Property representation
 data Prop m field record
   where
-    -- | Change internal state: set/unset flag, increment/decrement, etc.
-    Switch :: (Monad m, SwitchProp field a) =>
+    -- | Increase property value (switch flag, increment, etc.).
+    Incr :: (Monad m, SwitchProp field a) =>
       field m record a -> Prop m field record
+    
+    -- | Decrease property value (switch flag, decrement, etc.).
+    Decr :: (Monad m, SwitchProp field a) =>
+      field m record a -> Prop m field record
+    
+    -- | Increase/decrease value many times.
+    Switch :: (Monad m, SwitchProp field a) =>
+      Int -> field m record a -> Prop m field record
     
     -- | @field ':=' val@ sets new value @val@ to record.
     (:=)  :: (Monad m, SetProp field record) =>
@@ -54,16 +66,16 @@ data Prop m field record
     (::~) :: (Monad m, ModifyProp field record) =>
       field m record a -> (record -> a -> a) -> Prop m field record
     
-    -- | @field ':+=' val@ appends @val@ to @record@ value.
-    (:+=) :: (Monad m, InsertProp field record many) =>
+    -- | @field ':=+' val@ appends @val@ to @record@ value.
+    (:=+) :: (Monad m, InsertProp field record many) =>
       field m record (many a) -> a -> Prop m field record
     
     -- | @val ':=+' field@ prepends @val@ to @record@ value.
-    (:=+) :: (Monad m, InsertProp field record many) =>
+    (:+=) :: (Monad m, InsertProp field record many) =>
       a -> field m record (many a) -> Prop m field record
     
-    -- | @field ':-=' val@ removes @val@ from @record@ value
-    (:-=) :: (Monad m, DeleteProp field record many, Eq a) =>
+    -- | @field ':~=' val@ removes @val@ from @record@ value
+    (:~=) :: (Monad m, DeleteProp field record many, Eq a) =>
       field m record (many a) -> a -> Prop m field record
 
 --------------------------------------------------------------------------------
@@ -80,15 +92,18 @@ set =  setProp
 -- | @setRecord record props@ changes @record@ value using @props@ properties.
 setProp :: (Monad m) => record -> [Prop m field record] -> m ()
 setProp record = mapM_ $ \ prop -> case prop of
-  Switch  field -> switchRecord field record
-  field :=  val -> setRecord field record val
-  field ::= upd -> setRecord field record (upd record)
-  field :~  upd -> void $ modifyRecord field record upd
-  field ::~ upd -> void $ modifyRecord field record (upd record)
+  Incr      field -> incRecord      field record
+  Decr      field -> decRecord      field record
+  Switch  n field -> switchRecord n field record
   
-  field :+= val -> void $ prependRecord field record val
-  field :-= val -> void $ deleteRecord  field record val
-  val :=+ field -> void $ appendRecord  field record val
+  field ::=   upd -> setRecord field record (upd record)
+  field :=    val -> setRecord field record val
+  field ::~   upd -> void $ modifyRecord (upd record) field record
+  field :~    upd -> void $ modifyRecord upd field record
+  
+  field :=+   val -> void $ prependRecord val field record
+  val   :+= field -> void $ appendRecord  val field record
+  field :~=   val -> void $ deleteRecord  val field record
 
 --------------------------------------------------------------------------------
 
@@ -109,9 +124,9 @@ class ModifyProp field record
   where
     -- | @'modifyRecord' field record upd@ modifies @record@ @field@ using @upd@.
     default modifyRecord :: (Monad m, GetProp field record, SetProp field record) =>
-      field m record a -> record -> (a -> a) -> m a
-    modifyRecord :: (Monad m) => field m record a -> record -> (a -> a) -> m a
-    modifyRecord field record f = do
+      (a -> a) -> field m record a -> record -> m a
+    modifyRecord :: (Monad m) => (a -> a) -> field m record a -> record -> m a
+    modifyRecord f field record = do
       old <- get field record
       let new = f old
       setRecord field record new
@@ -122,24 +137,59 @@ class ModifyProp field record
 -- | Switch property setter.
 class SwitchProp field a
   where
-    -- | See 'Switch' property.
-    switchRecord :: (Monad m) => field m record a -> record -> m ()
+    -- | Generalized increment.
+    incRecord :: (Monad m) => field m record a -> record -> m ()
+    
+    -- | Generalized decrement.
+    decRecord :: (Monad m) => field m record a -> record -> m ()
+    
+    -- | Increment/decrement many times.
+    switchRecord :: (Monad m) => Int -> field m record a -> record -> m ()
 
 -- | Prepend/append modifier.
 class InsertProp field record many
   where
     -- | Prepends new element to existing value.
-    prependRecord :: (Monad m) => field m record (many a) -> record -> a -> m (many a)
+    prependRecord :: (Monad m) => a -> field m record (many a) -> record -> m (many a)
     
     -- | Appends new element to existing value.
-    appendRecord :: (Monad m) => field m record (many a) -> record -> a -> m (many a)
+    appendRecord :: (Monad m) => a -> field m record (many a) -> record -> m (many a)
 
 -- | Delete modifier.
 class DeleteProp field record many
   where
     -- | Delete element from value (if any).
-    deleteRecord :: (Monad m, Eq a) => field m record (many a) -> record -> a -> m (many a)
+    deleteRecord :: (Monad m, Eq a) => a -> field m record (many a) -> record -> m (many a)
 
+--------------------------------------------------------------------------------
 
+-- | Class of value that can be increased/decreased.
+class IsSwitch switch
+  where
+    -- | Increase value.
+    switchInc :: switch -> switch
+    
+    -- | Decrease value.
+    switchDec :: switch -> switch
+    
+    -- | Increase/decrease value many times.
+    switch :: Int -> switch -> switch
+    switch n !x = case n `compare` 0 of
+      GT -> switch (n - 1) (switchInc x)
+      LT -> switch (n + 1) (switchDec x)
+      EQ -> x
 
+--------------------------------------------------------------------------------
+
+instance {-# INCOHERENT #-} IsSwitch Bool
+  where
+    switch n x = even n == x -- switch n x = even n ? x $ not x
+    switchInc  = not
+    switchDec  = not
+
+instance (Integral a) => IsSwitch a
+  where
+    switch n x = x + fromIntegral n
+    switchInc  = succ
+    switchDec  = pred
 
