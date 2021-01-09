@@ -42,7 +42,7 @@ data SField m record a = SField
     setSField :: !(record -> a -> m ())
   }
 
--- | 'Observable' 'SField'.
+-- | 'Observe' 'SField'.
 type SOField = Observe SField
 
 instance GetProp    SField record where getRecord = getSField
@@ -90,12 +90,19 @@ instance ModifyProp Field record
   where
     modifyRecord upd field record = modifyField field record upd
 
-instance (IsSwitch switch) => SwitchProp Field switch
+instance (Integral switch) => SwitchProp Field switch
   where
-    incRecord = void ... modifyRecord switchInc
-    decRecord = void ... modifyRecord switchDec
+    incRecord = void ... modifyRecord succ
+    decRecord = void ... modifyRecord pred
     
-    switchRecord n = void ... modifyRecord (switch n)
+    switchRecord n = void ... modifyRecord (+ fromIntegral n)
+
+instance {-# INCOHERENT #-} SwitchProp Field Bool
+  where
+    incRecord = void ... modifyRecord not
+    decRecord = void ... modifyRecord not
+    
+    switchRecord n = void ... modifyRecord (even n &&)
 
 instance InsertProp Field record []
   where
@@ -113,15 +120,15 @@ data Observe field m record a = Observe
   {
     -- | Field to observe.
     observed :: field m record a,
-    -- | 'set' observer
+    -- | 'getRecord' observer
     onGet    :: record -> a -> m (),
-    -- | 'set' observer
+    -- | 'setRecord' observer
     onSet    :: record -> a -> m (),
-    -- | ''switch', modify', 'prepend', 'append' and 'delete' observer
+    -- | 'modifyRecord' observer
     onModify :: record -> m ()
   }
 
--- Create field with default observers.
+-- | Create field with default observers.
 observe :: (Monad m) => field m record a -> Observe field m record a
 observe field =
   let nothing = \ _ _ -> return ()
@@ -184,7 +191,5 @@ instance (DeleteProp field record many) => DeleteProp (Observe field) record man
 
 (...) :: (d -> c) -> (a -> b -> d) -> a -> b -> c
 (...) =  (.) . (.)
-
-
 
 

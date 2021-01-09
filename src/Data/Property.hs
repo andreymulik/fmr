@@ -22,10 +22,7 @@ module Data.Property
   SetProp (..),
   
   -- ** Modify
-  ModifyProp (..), InsertProp (..), DeleteProp (..),
-  
-  -- *** Switch
-  SwitchProp (..), IsSwitch (..)
+  ModifyProp (..), InsertProp (..), DeleteProp (..), SwitchProp (..)
 )
 where
 
@@ -160,36 +157,4 @@ class DeleteProp field record many
   where
     -- | Delete element from value (if any).
     deleteRecord :: (Monad m, Eq a) => a -> field m record (many a) -> record -> m (many a)
-
---------------------------------------------------------------------------------
-
--- | Class of value that can be increased/decreased.
-class IsSwitch switch
-  where
-    -- | Increase value.
-    switchInc :: switch -> switch
-    
-    -- | Decrease value.
-    switchDec :: switch -> switch
-    
-    -- | Increase/decrease value many times.
-    switch :: Int -> switch -> switch
-    switch n !x = case n `compare` 0 of
-      GT -> switch (n - 1) (switchInc x)
-      LT -> switch (n + 1) (switchDec x)
-      EQ -> x
-
---------------------------------------------------------------------------------
-
-instance {-# INCOHERENT #-} IsSwitch Bool
-  where
-    switch n x = even n == x -- switch n x = even n ? x $ not x
-    switchInc  = not
-    switchDec  = not
-
-instance (Integral a) => IsSwitch a
-  where
-    switch n x = x + fromIntegral n
-    switchInc  = succ
-    switchDec  = pred
 
