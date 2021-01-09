@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances, BangPatterns #-}
-{-# LANGUAGE DefaultSignatures, GADTs #-}
+{-# LANGUAGE Safe, DefaultSignatures, GADTs #-}
 
 {- |
     License     :  BSD-style
