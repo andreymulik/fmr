@@ -12,7 +12,7 @@
 module Data.Field
 (
   -- * Simple field
-  SField (..), SOField,
+  SField (..), SOField, sfield,
   
   -- * Field
   Field (..), OField,
@@ -28,8 +28,6 @@ import Data.Property
 import Data.Functor
 
 default ()
-
-infixr 0 ...
 
 --------------------------------------------------------------------------------
 
@@ -51,9 +49,9 @@ instance ModifyProp SField record
 
 instance (SwitchProp Field record) => SwitchProp SField record
   where
-    switchRecord n = switchRecord n . toField
-    incRecord      = incRecord . toField
-    decRecord      = decRecord . toField
+    switchRecord = switchRecord . toField
+    incRecord    = incRecord . toField
+    decRecord    = decRecord . toField
 
 instance (InsertProp Field record many) => InsertProp SField record many
   where
@@ -64,8 +62,12 @@ instance (DeleteProp Field record many) => DeleteProp SField record many
   where
     deleteRecord x = deleteRecord x . toField
 
+-- | Create 'Field' from getter and setter.
+sfield :: (Monad m) => (record -> m a) -> (record -> a -> m ()) -> Field m record a
+sfield g s = toField (SField g s)
+
 toField :: (Monad m) => SField m record a -> Field m record a
-toField sfield@(SField g s) = Field g s $ flip (`modifyRecord` sfield)
+toField field@(SField g s) = Field g s (modifyRecord field)
 
 --------------------------------------------------------------------------------
 
@@ -80,38 +82,35 @@ data Field m record a = Field
     modifyField :: !(record -> (a -> a) -> m a)
   }
 
--- | 'Observable' 'Field'.
+-- | Observable 'Field'.
 type OField = Observe Field
 
-instance GetProp    Field record where getRecord = getField
-instance SetProp    Field record where setRecord = setField
-
-instance ModifyProp Field record
-  where
-    modifyRecord upd field record = modifyField field record upd
+instance GetProp    Field record where getRecord    = getField
+instance SetProp    Field record where setRecord    = setField
+instance ModifyProp Field record where modifyRecord = modifyField
 
 instance (Integral switch) => SwitchProp Field switch
   where
-    incRecord = void ... modifyRecord succ
-    decRecord = void ... modifyRecord pred
+    incRecord field record = void $ modifyRecord field record succ
+    decRecord field record = void $ modifyRecord field record pred
     
-    switchRecord n = void ... modifyRecord (+ fromIntegral n)
+    switchRecord field record = void . modifyRecord field record . (+) . fromIntegral
 
 instance {-# INCOHERENT #-} SwitchProp Field Bool
   where
-    incRecord = void ... modifyRecord not
-    decRecord = void ... modifyRecord not
+    incRecord record field = void $ modifyRecord record field not
+    decRecord record field = void $ modifyRecord record field not
     
-    switchRecord n = void ... modifyRecord (even n &&)
+    switchRecord record field n = void $ modifyRecord record field (even n &&)
 
 instance InsertProp Field record []
   where
-    appendRecord  = modifyRecord . (flip (++) . pure)
-    prependRecord = modifyRecord . (:)
+    appendRecord  x record field = modifyRecord record field (++ [x])
+    prependRecord x record field = modifyRecord record field (x :)
 
 instance DeleteProp Field record []
   where
-    deleteRecord = modifyRecord . L.delete
+    deleteRecord x record field = modifyRecord record field (L.delete x)
 
 --------------------------------------------------------------------------------
 
@@ -144,8 +143,8 @@ instance (SwitchProp field a) => SwitchProp (Observe field) a
       decRecord (observed field) record
       onModify field record
     
-    switchRecord n field record = do
-      switchRecord n (observed field) record
+    switchRecord field record n = do
+      switchRecord (observed field) record n
       onModify field record
 
 instance (GetProp field record) => GetProp (Observe field) record
@@ -163,8 +162,8 @@ instance (SetProp field record) => SetProp (Observe field) record
 
 instance (ModifyProp field record) => ModifyProp (Observe field) record
   where
-    modifyRecord upd field record = do
-      res <- modifyRecord upd (observed field) record
+    modifyRecord field record upd = do
+      res <- modifyRecord (observed field) record upd
       onModify field record
       return res
 
@@ -187,9 +186,5 @@ instance (DeleteProp field record many) => DeleteProp (Observe field) record man
       onModify field record
       return res
 
---------------------------------------------------------------------------------
-
-(...) :: (d -> c) -> (a -> b -> d) -> a -> b -> c
-(...) =  (.) . (.)
 
 

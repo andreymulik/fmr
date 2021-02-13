@@ -1,6 +1,5 @@
+{-# LANGUAGE Safe, DefaultSignatures, GADTs, UndecidableInstances, BangPatterns #-}
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
-{-# LANGUAGE UndecidableInstances, BangPatterns #-}
-{-# LANGUAGE Safe, DefaultSignatures, GADTs #-}
 
 {- |
     License     :  BSD-style
@@ -45,7 +44,7 @@ data Prop m field record
     
     -- | Increase/decrease value many times.
     Switch :: (Monad m, SwitchProp field a) =>
-      Int -> field m record a -> Prop m field record
+      field m record a -> Int -> Prop m field record
     
     -- | @field ':=' val@ sets new value @val@ to record.
     (:=)  :: (Monad m, SetProp field record) =>
@@ -78,8 +77,7 @@ data Prop m field record
 --------------------------------------------------------------------------------
 
 -- | 'getRecord' shortcut.
-get :: (Monad m, GetProp field record) =>
-  field m record a -> record -> m a
+get :: (Monad m, GetProp field record) => field m record a -> record -> m a
 get =  getRecord
 
 -- | 'setProp' shortcut.
@@ -89,14 +87,14 @@ set =  setProp
 -- | @setRecord record props@ changes @record@ value using @props@ properties.
 setProp :: (Monad m) => record -> [Prop m field record] -> m ()
 setProp record = mapM_ $ \ prop -> case prop of
-  Incr      field -> incRecord      field record
-  Decr      field -> decRecord      field record
-  Switch  n field -> switchRecord n field record
+  Incr    field   -> incRecord    field record
+  Decr    field   -> decRecord    field record
+  Switch  field n -> switchRecord field record n
   
   field ::=   upd -> setRecord field record (upd record)
   field :=    val -> setRecord field record val
-  field ::~   upd -> void $ modifyRecord (upd record) field record
-  field :~    upd -> void $ modifyRecord upd field record
+  field ::~   upd -> void $ modifyRecord field record (upd record)
+  field :~    upd -> void $ modifyRecord field record upd
   
   field :=+   val -> void $ prependRecord val field record
   val   :+= field -> void $ appendRecord  val field record
@@ -121,9 +119,9 @@ class ModifyProp field record
   where
     -- | @'modifyRecord' field record upd@ modifies @record@ @field@ using @upd@.
     default modifyRecord :: (Monad m, GetProp field record, SetProp field record) =>
-      (a -> a) -> field m record a -> record -> m a
-    modifyRecord :: (Monad m) => (a -> a) -> field m record a -> record -> m a
-    modifyRecord f field record = do
+      field m record a -> record -> (a -> a) -> m a
+    modifyRecord :: (Monad m) => field m record a -> record -> (a -> a) -> m a
+    modifyRecord field record f = do
       old <- get field record
       let new = f old
       setRecord field record new
@@ -131,17 +129,22 @@ class ModifyProp field record
 
 --------------------------------------------------------------------------------
 
--- | Switch property setter.
+-- | Switch property modifier.
 class SwitchProp field a
   where
-    -- | Generalized increment.
+    -- | Generalized increment, same as @switchRecord@.
     incRecord :: (Monad m) => field m record a -> record -> m ()
     
     -- | Generalized decrement.
     decRecord :: (Monad m) => field m record a -> record -> m ()
     
-    -- | Increment/decrement many times.
-    switchRecord :: (Monad m) => Int -> field m record a -> record -> m ()
+    {- |
+      Increment/decrement many times.
+      
+      > decRecord field record = switchRecord field record (-1)
+      > incRecord field record = switchRecord field record 1
+    -}
+    switchRecord :: (Monad m) => field m record a -> record -> Int -> m ()
 
 -- | Prepend/append modifier.
 class InsertProp field record many
@@ -157,4 +160,6 @@ class DeleteProp field record many
   where
     -- | Delete element from value (if any).
     deleteRecord :: (Monad m, Eq a) => a -> field m record (many a) -> record -> m (many a)
+
+
 
