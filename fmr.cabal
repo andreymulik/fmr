@@ -6,7 +6,7 @@ synopsis:      Fake monadic records library
 description:   The generalized syntax of abstract monadic records.
 
 author:        Andrey Mulik
-maintainer:    work.a.mulik@gmail.com
+maintainer:    <work.a.mulik@gmail.com>
 bug-reports:   https://github.com/andreymulik/fmr/issues
 
 copyright:     2020 Andrey Mulik
@@ -32,7 +32,7 @@ Library
   hs-source-dirs:   src
   
   build-depends:    base >= 4.12 && < 5  
-  ghc-options:      -O2 -Wall
+  ghc-options:      -Wall -Wcompat
   
   exposed-modules:
     Data.Property
