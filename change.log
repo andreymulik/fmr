@@ -1,5 +1,0 @@
-version 0.1
-  ADDED:
-    SwitchProp, GetProp, SetProp, ModifyProp, InsertProp and DeleteProp classes
-    Observe, SField, Field and Prop types
-

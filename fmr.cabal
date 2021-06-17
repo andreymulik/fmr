@@ -1,9 +1,9 @@
 name:          fmr
-version:       0.1
+version:       0.2
 category:      Syntax
 
-synopsis:      Fake monadic records library
-description:   The generalized syntax of abstract monadic records.
+synopsis:      Fields for Monadic Records library
+description:   The generalized, extensible syntax of abstract monadic records.
 
 author:        Andrey Mulik
 maintainer:    <work.a.mulik@gmail.com>
