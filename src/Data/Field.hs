@@ -150,8 +150,8 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
     type Var m :: Type -> Type
 
 instance MonadVar (ST s) where type Var (ST s) = STRef s
-instance MonadVar STM    where type Var STM    = TVar
 instance MonadVar IO     where type Var IO     = IORef
+instance MonadVar STM    where type Var STM    = TVar
 
 --------------------------------------------------------------------------------
 
@@ -171,25 +171,40 @@ instance MonadVar IO     where type Var IO     = IORef
 class (Monad m, MonadVar m) => IsMVar m var
   where
     -- | 'this' is common variable access field.
-    this :: Field m (var this) this
+    this :: Field m (var a) a
+    
+    -- | Create and initialize new mutable variable.
+    var :: a -> m (var a)
 
-instance IsMVar (ST s) (STRef s) where this = Field readSTRef writeSTRef modifySTRef''
+instance IsMVar (ST s) (STRef s)
+  where
+    var  = newSTRef
+    this = Field readSTRef writeSTRef modifySTRef''
 
 modifySTRef'' :: STRef s a -> (a -> a) -> ST s a
-modifySTRef'' var f = do res <- f <$> readSTRef var; writeSTRef var res; return $! res
+modifySTRef'' ref f = do res <- f <$> readSTRef ref; writeSTRef ref res; return $! res
 
-instance IsMVar IO IORef where this = Field readIORef writeIORef modifyIORef''
+instance IsMVar IO IORef
+  where
+    var  = newIORef
+    this = Field readIORef writeIORef modifyIORef''
 
 modifyIORef'' :: IORef a -> (a -> a) -> IO a
-modifyIORef'' var f = var `atomicModifyIORef'` \ a -> let b = f a in (b, b)
+modifyIORef'' ref f = ref `atomicModifyIORef'` \ a -> let b = f a in (b, b)
 
-instance IsMVar IO MVar where this = Field readMVar putMVar modifyMVar'
+instance IsMVar IO MVar
+  where
+    var  = newMVar
+    this = Field readMVar putMVar modifyMVar'
 
 modifyMVar' :: MVar a -> (a -> a) -> IO a
 modifyMVar' mvar f = mvar `modifyMVar` \ a -> let b = f a in return (b, b)
 
-instance IsMVar STM TVar where this = Field readTVar writeTVar modifyTVar
+instance IsMVar STM TVar
+  where
+    var  = newTVar
+    this = Field readTVar writeTVar modifyTVar
 
 modifyTVar :: TVar a -> (a -> a) -> STM a
-modifyTVar var f = do res <- f <$> readTVar var; writeTVar var res; return res
+modifyTVar tvar f = do res <- f <$> readTVar tvar; writeTVar tvar res; return res
 
