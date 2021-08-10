@@ -1,6 +1,5 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, DefaultSignatures #-}
-{-# LANGUAGE GADTs, PatternSynonyms, ViewPatterns #-}
-{-# LANGUAGE Safe, DataKinds, KindSignatures #-}
+{-# LANGUAGE Safe, MultiParamTypeClasses, FlexibleInstances, DefaultSignatures #-}
+{-# LANGUAGE GADTs, PatternSynonyms, ViewPatterns, DataKinds, KindSignatures #-}
 
 {- |
     License     :  BSD-style
@@ -240,6 +239,7 @@ incr =  Prop . FieldSwitch 1
 -- | @'decr' field@ is same as @switch field (-1)@.
 decr :: (Monad m, SwitchProp field a) => field m record a -> Prop m field record
 decr =  Prop . FieldSwitch (-1)
+
 
 
 

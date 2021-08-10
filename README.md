@@ -1,14 +1,14 @@
-# Fake records
+# Fields for monadic records
 
-Simple interface for record-like access for any data.
+Simple interface for record-like access for any mutable data.
 
 ## Reasons
 
-This package is designed as part of a more serious project.
+This package is designed as part of a more complex project.
 
-fake records generalize wxHaskell's Attr-Prop syntax for any monad and data
-source. Thus, you can easily modify the data represented, for example, by an
-abstract foreign type.
+`fmr` generalizes wxHaskell's Attr-Prop syntax for any monad and data source.
+Thus, you can easily modify the data represented, for example, by an abstract
+foreign type.
 
 ## Versioning
 
