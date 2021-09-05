@@ -12,7 +12,8 @@
 module Data.Field
 (
   -- * Field
-  Field (..), GetterFor, SetterFor, ModifierFor, pattern SField,
+  Field (.., SField, Field, getField, setField, modifyField),
+  GetterFor, SetterFor, ModifierFor,
   
   -- * IsMVar and MonadVar
   IsMVar (..), MonadVar (..),
@@ -39,46 +40,59 @@ default ()
 --------------------------------------------------------------------------------
 
 -- | Normal field, which contain getter, setter and modifier.
-data Field m record a = Field
-  {
-    -- | Get field value
-    getField    :: !(GetterFor   m record a),
-    -- | Set field value
-    setField    :: !(SetterFor   m record a),
-    -- | Modify field value
-    modifyField :: !(ModifierFor m record a)
-  }
+data Field m record a = Field'
+    -- | Field getter
+    !(GetterFor    m record a)
+    -- | Field setter
+    !(SetterFor    m record a)
+    -- | Field modifier
+    !(ModifierFor  m record a)
+    -- | Monadic field modifier
+    !(ModifierMFor m record a)
   deriving ( Typeable )
 
 -- | Getter type.
-type GetterFor   m record a = record -> m a
+type GetterFor    m record a = record -> m a
 
 -- | Setter type.
-type SetterFor   m record a = record -> a -> m ()
+type SetterFor    m record a = record -> a -> m ()
 
 -- | Modifier type.
-type ModifierFor m record a = record -> (a -> a) -> m a
+type ModifierFor  m record a = record -> (a -> a) -> m a
 
--- | 'SField' pattern simplifies field creation if modifier uses getter and setter.
+-- | Monadic modifier type.
+type ModifierMFor m record a = record -> (a -> m a) -> m a
+
+{- |
+  'SField' pattern simplifies field creation if modifiers uses getter and setter.
+-}
 pattern SField :: (Monad m) => GetterFor m record a -> SetterFor m record a -> Field m record a
-pattern SField g s <- Field g s _ where SField g s = Field g s (modifyDummy g s)
+pattern SField g s <- Field' g s _ _ where SField g s = Field' g s (modifyDummy g s) (modifyMDummy g s)
 
 modifyDummy :: (Monad m) => GetterFor m record a -> SetterFor m record a -> ModifierFor m record a
 modifyDummy g s = \ record f -> do val <- f <$> g record; s record val; return val
 
+{- |
+  'Field' pattern simplifies field creation if monadic modifier uses getter and
+  setter.
+-}
+pattern Field :: (Monad m) => GetterFor m record a -> SetterFor m record a -> ModifierFor m record a -> Field m record a
+pattern Field{getField, setField, modifyField} <- Field' getField setField modifyField _
+  where
+    Field g s m = Field' g s m (modifyMDummy g s)
+
+modifyMDummy :: (Monad m) => GetterFor m record a -> SetterFor m record a -> ModifierMFor m record a
+modifyMDummy g s = \ record f -> do val <- f =<< g record; s record val; return val
+
 --------------------------------------------------------------------------------
 
-instance GetProp    Field record where getRecord    = getField
-instance SetProp    Field record where setRecord    = setField
-instance ModifyProp Field record where modifyRecord = modifyField
+instance FieldGet    Field where getRecord    = getField
+instance FieldSet    Field where setRecord    = setField
+instance FieldModify Field where modifyRecord = modifyField
 
-instance (Integral switch) => SwitchProp Field switch
+instance FieldSwitch Field
   where
-    switchRecord field record = void . modifyRecord field record . (+) . fromIntegral
-
-instance {-# INCOHERENT #-} SwitchProp Field Bool
-  where
-    switchRecord record field n = void $ modifyRecord record field (even n &&)
+    switchRecord field record = void . modifyRecord field record . toggle
 
 --------------------------------------------------------------------------------
 
@@ -107,29 +121,34 @@ observe field =
 
 --------------------------------------------------------------------------------
 
-instance (SwitchProp field a) => SwitchProp (Observe field) a
+instance (FieldSwitch field) => FieldSwitch (Observe field)
   where
     switchRecord field record n = do
       switchRecord (observed field) record n
       onModify field record
 
-instance (GetProp field record) => GetProp (Observe field) record
+instance (FieldGet field) => FieldGet (Observe field)
   where
     getRecord field record = do
       res <- getRecord (observed field) record
       onGet field record res
       return res
 
-instance (SetProp field record) => SetProp (Observe field) record
+instance (FieldSet field) => FieldSet (Observe field)
   where
     setRecord field record val = do
       setRecord (observed field) record val
       onSet field record val
 
-instance (ModifyProp field record) => ModifyProp (Observe field) record
+instance (FieldModify field, FieldGet field) => FieldModify (Observe field)
   where
     modifyRecord field record upd = do
       res <- modifyRecord (observed field) record upd
+      onModify field record
+      return res
+    
+    modifyRecordM field record upd = do
+      res <- modifyRecordM (observed field) record upd
       onModify field record
       return res
 
@@ -161,12 +180,13 @@ instance MonadVar STM    where type Var STM    = TVar
   It's supposed to be useful for working with mutable variables and structures
   when @(':~')@ is difficult or impairs the readability of the code, e.g:
   
-  > set record [this := value] === set record [anyField :~ const value]
+  @
+    set record [this := value] === set record [anyField ::= const value]
+    set record [this := value] === set record [anyField ::~ const value]
+  @
   
   Please note that you cannot create 'IsMVar' and 'MonadVar' instances for some
-  monad separately: if a mutable variable is defined in the monad, then there
-  must be a default variable type (not necessarily which one), and if there is a
-  default variable type, then there must be at least one such variable.
+  monad separately.
 -}
 class (Monad m, MonadVar m) => IsMVar m var
   where
@@ -179,32 +199,32 @@ class (Monad m, MonadVar m) => IsMVar m var
 instance IsMVar (ST s) (STRef s)
   where
     var  = newSTRef
-    this = Field readSTRef writeSTRef modifySTRef''
-
-modifySTRef'' :: STRef s a -> (a -> a) -> ST s a
-modifySTRef'' ref f = do res <- f <$> readSTRef ref; writeSTRef ref res; return $! res
+    this = Field' readSTRef writeSTRef modify' modifyM'
+      where
+        modifyM' ref f = do res <- f =<< readSTRef ref; res <$ writeSTRef ref res
+        modify'  ref f = do res <- f <$> readSTRef ref; res <$ writeSTRef ref res
 
 instance IsMVar IO IORef
   where
     var  = newIORef
-    this = Field readIORef writeIORef modifyIORef''
-
-modifyIORef'' :: IORef a -> (a -> a) -> IO a
-modifyIORef'' ref f = ref `atomicModifyIORef'` \ a -> let b = f a in (b, b)
+    this = -- monadic modifier is dummy for now
+      let modify' ref f = ref `atomicModifyIORef'` \ a -> let b = f a in (b, b)
+      in  Field readIORef writeIORef modify'
 
 instance IsMVar IO MVar
   where
     var  = newMVar
-    this = Field readMVar putMVar modifyMVar'
-
-modifyMVar' :: MVar a -> (a -> a) -> IO a
-modifyMVar' mvar f = mvar `modifyMVar` \ a -> let b = f a in return (b, b)
+    this = Field' readMVar putMVar modify' modifyM'
+      where
+        modifyM' mvar f = mvar `modifyMVarMasked` \ a -> do b <- f a; return (b, b)
+        modify'  mvar f = mvar `modifyMVar` \ a -> let b = f a in return (b, b)
 
 instance IsMVar STM TVar
   where
     var  = newTVar
-    this = Field readTVar writeTVar modifyTVar
+    this = Field' readTVar writeTVar modifyTVar modifyMTVar
+      where
+        modifyMTVar tvar f = do res <- f =<< readTVar tvar; res <$ writeTVar tvar res
+        modifyTVar  tvar f = do res <- f <$> readTVar tvar; res <$ writeTVar tvar res
 
-modifyTVar :: TVar a -> (a -> a) -> STM a
-modifyTVar tvar f = do res <- f <$> readTVar tvar; writeTVar tvar res; return res
 
