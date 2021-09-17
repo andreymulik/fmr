@@ -20,28 +20,34 @@ module Data.Property
   -- * Generalized properties
   IsProp (..), PropertyKind, FieldKind, Prop (..),
   
-  -- ** Get property
+  -- ** Basic properties
   FieldGet (..), get, gets',
+  FieldSet (..), set, sets',
   
-  -- ** Set property
-  FieldSet (..), set, sets', pattern (:=), pattern (::=),
+  -- *** Set properties
+  pattern (:=), pattern (::=), pattern (:=$), pattern (::=$),
   
-  -- *** Monadic set
-  pattern (:<=), pattern (:=<),
+  -- *** Monadic set properties
+  pattern (:<=), pattern (:<=$), pattern (:=<), pattern (:=<$),
   
   -- ** Modify properties
-  FieldModify (..), pattern (:~), pattern (::~),
+  FieldModify (..),
   
-  -- *** Monadic modify
-  pattern (:<~), pattern (:~<),
+  -- *** Modify properties
+  pattern (:~), pattern (:~$), pattern (::~), pattern (::~$),
   
-  -- ** Switch property
+  -- *** Monadic modify properties
+  pattern (:<~), pattern (:<~$), pattern (:~<), pattern (:~<$),
+  
+  -- ** Switch properties
   IsSwitch (..), FieldSwitch (..), switch, incr, decr
 )
 where
 
 import Data.Typeable
 import Data.Kind
+
+import Control.Monad
 
 default ()
 
@@ -51,8 +57,8 @@ default ()
 
 {- |
   @since 0.2
-  'Prop' is new, generalized and extensible property type, which may contain any
-  'IsProp'.
+  'Prop' is new, generalized and extensible property type (existential), which
+  may contain any 'IsProp' value.
 -}
 data Prop m field record
   where
@@ -62,7 +68,7 @@ data Prop m field record
 {- |
   @since 0.2
   'IsProp' is a property class that allows you to extend @fmr@ syntax. Now you
-  can create new property types and use it with existing in 'set'' list of
+  can create new property types and use it with existing in 'set' list of
   actions.
 -}
 class IsProp (prop :: PropertyKind)
@@ -72,17 +78,28 @@ class IsProp (prop :: PropertyKind)
 
 instance IsProp SetProp
   where
-    performProp record (SetRecordPropM field   kl) = setRecord field record =<< kl record
-    performProp record (SetRecordProp  field    f) = setRecord field record (f record)
-    performProp record (SetPropM       field mval) = setRecord field record =<< mval
-    performProp record (SetProp        field  val) = setRecord field record val
+    performProp record (SetRecordPropM field   kl) = setRecords field record =<< kl record
+    performProp record (SetRecordProp  field    f) = setRecords field record (f record)
+    performProp record (SetPropM       field mval) = setRecords field record =<< mval
+    performProp record (SetProp        field  val) = setRecords field record val
+
+setRecords :: (Monad m, FieldSet field) => [field m record a] -> record -> a -> m ()
+setRecords fields record val = forM_ fields $ \ field -> setRecord field record val
 
 instance IsProp ModifyProp
   where
-    performProp record (Modify      field  f) = () <$ modifyRecord  field record (f record)
-    performProp record (ModifyM     field  f) = () <$ modifyRecordM field record (f record)
-    performProp record (ModifyProp  field  f) = () <$ modifyRecord  field record f
-    performProp record (ModifyPropM field kl) = () <$ modifyRecordM field record kl
+    performProp record (Modify      field f) = () <$ modifyRecords  field record (f record)
+    performProp record (ModifyM     field f) = () <$ modifyRecordsM field record (f record)
+    performProp record (ModifyProp  field f) = () <$ modifyRecords  field record f
+    performProp record (ModifyPropM field f) = () <$ modifyRecordsM field record f
+
+modifyRecords :: (Monad m, FieldModify field) =>
+  [field m record b] -> record -> (b -> b) -> m ()
+modifyRecords fields record f = fields `forM_` \ field -> modifyRecord field record f
+
+modifyRecordsM :: (Monad m, FieldModify field, FieldGet field) =>
+  [field m record b] -> record -> (b -> m b) -> m ()
+modifyRecordsM fields record f = fields `forM_` \ field -> modifyRecordM field record f
 
 instance IsProp SwitchProp
   where
@@ -100,20 +117,21 @@ type PropertyKind = (Type -> Type) -> FieldKind -> Type -> Type
 
 {- fmr classes. -}
 
--- | Class of fields types which supports value reading.
+-- | @since 0.2 Property getter class.
 class FieldGet field
   where
     -- | @'getRecord' field record@ return @record@'s value using @field@.
     getRecord :: (Monad m) => field m record a -> record -> m a
 
--- | Property setter.
+-- | @since 0.2 Property setter class.
 class FieldSet field
   where
     -- | @'setRecord' field record value@ sets new @record@ @value@.
     setRecord :: (Monad m) => field m record a -> record -> a -> m ()
 
 {- |
-  Property modifier.
+  @since 0.2
+  Property modifier class.
   
   Note that 'FieldModifier' doesn't go well with write-only fields, because
   'modifyRecord' returns new value, and 'modifyRecordM' also assumes the
@@ -152,7 +170,8 @@ class (FieldSet field) => FieldModify field
       
       So you cannot use it for write-only fields.
     -}
-    modifyRecordM :: (Monad m, FieldGet field) => field m record a -> record -> (a -> m a) -> m a
+    modifyRecordM :: (Monad m, FieldGet field) =>
+      field m record a -> record -> (a -> m a) -> m a
     modifyRecordM field record f = do
       val <- f =<< get field record
       setRecord field record val
@@ -176,50 +195,52 @@ class FieldSwitch field
 
 {- |
   @since 0.2
-  'SetProp' is a service type used to set field values, see @(':=')@ and
-  @('::=')@.
+  'SetProp' is a service type used to set field values.
+  See @(':=')@, @(':=$')@, @('::=')@, @('::=$')@, @(':<=')@, @(':<=$')@,
+  @(':=<')@ and @(':=<$')@ patterns.
 -}
 data SetProp m field record
   where
-    -- | 'SetProp' corresponds to @(':=')@
+    -- | 'SetProp' corresponds to @(':=$')@ and @(':=')@.
     SetProp :: (FieldSet field) =>
-      field m record a -> a -> SetProp m field record
+      [field m record a] -> a -> SetProp m field record
     
-    -- | 'SetPropM' corresponds to @('::=')@
+    -- | 'SetPropM' corresponds to @('::=$')@ and @('::=')@.
     SetPropM :: (FieldSet field) =>
-      field m record a -> m a -> SetProp m field record
+      [field m record a] -> m a -> SetProp m field record
     
-    -- | 'SetRecordProp' corresponds to @(':<=')@
+    -- | 'SetRecordProp' corresponds to @(':<=$')@ and @(':<=')@.
     SetRecordProp :: (FieldSet field) =>
-      field m record a -> (record -> a) -> SetProp m field record
+      [field m record a] -> (record -> a) -> SetProp m field record
     
-    -- | 'SetRecordPropM' corresponds to @(':=<')@
+    -- | 'SetRecordPropM' corresponds to @(':=<$')@ and @(':=<')@.
     SetRecordPropM :: (FieldSet field) =>
-      field m record a -> (record -> m a) -> SetProp m field record
+      [field m record a] -> (record -> m a) -> SetProp m field record
   deriving ( Typeable )
 
 {- |
   @since 0.2
-  'ModifyProp' is a service type used to modify field values. See @(':~')@,
-  @(':<~')@, @('::~')@ and @(':~<')@ patterns.
+  'ModifyProp' is a service type used to modify field values.
+  See @(':~')@, @(':~$')@, @(':<~')@, @(':<~$')@, @('::~')@, @('::~$')@,
+  @(':~<')@, @(':~<$')@ patterns.
 -}
 data ModifyProp m field record
   where
-    -- | 'FieldModify' constructor corresponds to @(':~')@ pattern.
+    -- | 'FieldModify' constructor corresponds to @(':~$')@ and @(':~')@.
     ModifyProp :: (FieldModify field) =>
-      field m record a -> (a -> a) -> ModifyProp m field record
+      [field m record a] -> (a -> a) -> ModifyProp m field record
     
-    -- | 'FieldModify' constructor corresponds to @(':<~')@ pattern.
+    -- | 'FieldModify' constructor corresponds to @(':<~$')@ and @(':<~')@.
     ModifyPropM :: (FieldModify field, FieldGet field) =>
-      field m record a -> (a -> m a) -> ModifyProp m field record
+      [field m record a] -> (a -> m a) -> ModifyProp m field record
     
-    -- | 'Modify' corresponds to @('::~')@
+    -- | 'Modify' constructor corresponds to @('::~$')@ and @('::~')@.
     Modify :: (FieldModify field) =>
-      field m record a -> (record -> a -> a) -> ModifyProp m field record
+      [field m record a] -> (record -> a -> a) -> ModifyProp m field record
     
-    -- | 'ModifyM' corresponds to @(':~<')@
+    -- | 'ModifyM' constructor corresponds to @(':~<$')@ and @(':~<')@.
     ModifyM :: (FieldModify field, FieldGet field) =>
-      field m record a -> (record -> a -> m a) -> ModifyProp m field record
+      [field m record a] -> (record -> a -> m a) -> ModifyProp m field record
   deriving ( Typeable )
 
 {- |
@@ -236,73 +257,301 @@ data SwitchProp m field record
 
 --------------------------------------------------------------------------------
 
-{- fmr patterns. -}
+{- fmr pure setters. -}
 
--- | Set new value to field.
-pattern (:=) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldSet field)
-             => field m record a -> a -> Prop m field record
-pattern field := val <- (cast -> Just (SetProp field val)) where (:=) = Prop ... SetProp
+{- |
+  Pure value setter. @set record [field := value]@ set @value@ to @record@'s
+  @field@.
+-}
+pattern (:=) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => field m record a -> a -> Prop m field record
+pattern field := val = [field] :=$ val
 
--- | Update field value using current record value.
-pattern (::=) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldSet field)
-              => field m record a -> (record -> a) -> Prop m field record
-pattern field ::= f <- (cast -> Just (SetRecordProp field f)) where (::=) = Prop ... SetRecordProp
+{- |
+  Pure value setter with @record@. @set record [field ::= f]@ set @f record@ to
+  @record@'s @field@.
+  
+  @
+    set record [field ::= const val] === set record [field := val]
+  @
+-}
+pattern (::=) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => field m record a -> (record -> a) -> Prop m field record
+pattern field ::= f = [field] ::=$ f
 
 {- |
   @since 0.2
-  @(':<=')@ is monadic version of @(':=')@, which calculates monadic value
-  before set it.
+  Pure group setter. @set record [fields :=$ value]@ set @value@ to @record@'s
+  some @fields@.
+  
+  @
+    set record [[field] :=$ value] === set record [field := value]
+  @
 -}
-pattern (:<=) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldSet field)
-              => field m record a -> m a -> Prop m field record
-pattern field :<= mval <- (cast -> Just (SetPropM field mval)) where (:<=) = Prop ... SetPropM
+pattern (:=$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => [field m record a] -> a -> Prop m field record
+pattern field :=$ val <- (cast -> Just (SetProp field val))
+  where
+    (:=$) = Prop ... SetProp
 
 {- |
   @since 0.2
-  @(':=<')@ is monadic version of @('::=')@, which calculates monadic value
-  before set it.
+  Pure group setter with @record@. @set record [fields ::=$ f]@ set @f record@
+  to @record@'s some @fields@.
+  
+  @
+    set record [[field] ::=$ f] === set record [field ::= f]
+    set record [fields ::=$ const val] === set record [fields :=$ val]
+  @
 -}
-pattern (:=<) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldSet field)
-              => field m record a -> (record -> m a) -> Prop m field record
-pattern field :=< f <- (cast -> Just (SetRecordPropM field f)) where (:=<) = Prop ... SetRecordPropM
-
--- | Update field value using current field value.
-pattern (:~) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldModify field)
-             => field m record a -> (a -> a) -> Prop m field record
-pattern field :~ f <- (cast -> Just (ModifyProp field f)) where (:~) = Prop ... ModifyProp
-
--- | Update field value using current record and field values.
-pattern (::~) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldModify field)
-              => field m record a -> (record -> a -> a) -> Prop m field record
-pattern field ::~ f <- (cast -> Just (Modify field f)) where (::~) = Prop ... Modify
-
-{- |
-  @since 0.2
-  @(':<~')@ is monadic version of @(':~')@, which calculates monadic value
-  before set it.
--}
-pattern (:<~) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldModify field, FieldGet field)
-              => field m record a -> (a -> m a) -> Prop m field record
-pattern field :<~ f <- (cast -> Just (ModifyPropM field f)) where (:<~) = Prop ... ModifyPropM
-
-{- |
-  @since 0.2
-  @(':~<')@ is monadic version of @('::~')@, which calculates monadic value
-  before set it.
--}
-pattern (:~<) :: (Typeable m, Typeable field, Typeable record, Monad m, FieldModify field, FieldGet field)
-              => field m record a -> (record -> a -> m a) -> Prop m field record
-pattern field :~< f <- (cast -> Just (ModifyM field f)) where (:~<) = Prop ... ModifyM
+pattern (::=$) ::
+  (
+    Typeable m, Typeable field, Typeable record, Monad m, FieldSet field
+  ) => [field m record a] -> (record -> a) -> Prop m field record
+pattern field ::=$ f <- (cast -> Just (SetRecordProp field f))
+  where
+    (::=$) = Prop ... SetRecordProp
 
 --------------------------------------------------------------------------------
 
-{- fmr group field. -}
-{-
-newtype GroupField m field record a = GroupField [field m record a]
+{- fmr pure updaters. -}
 
-group :: [field m record a] -> GroupField m field record a
-group =  GroupField
+{- |
+  Pure value modifier. @set record [field :~ f]@ modify value of @record@'s
+  @field@ using @f@ function.
+  
+  @
+    set record [field :~ const val] === set record [field := val]
+  @
 -}
+pattern (:~) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field
+  ) => field m record a -> (a -> a) -> Prop m field record
+pattern field :~ f = [field] :~$ f
+
+{- |
+  Pure value modifier with @record@. @set record [field ::~ f]@ modify value of
+  @record@'s @field@ using @f record@ function.
+  
+  @
+    set record [field ::~ const f] === set record [field :~ f]
+  @
+-}
+pattern (::~) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field
+  ) => field m record a -> (record -> a -> a) -> Prop m field record
+pattern field ::~ f = [field] ::~$ f
+
+{- |
+  @since 0.2
+  Pure group modifier. @set record [fields :~$ f]@ modify values of @record@'s
+  @fields@ using @f@ function.
+  
+  @
+    set record [[field] :~$ val] === set record [field :~ val]
+    set record [fields :~$ const val] === set record [field :=$ val]
+  @
+-}
+pattern (:~$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field
+  ) => [field m record a] -> (a -> a) -> Prop m field record
+pattern field :~$ f <- (cast -> Just (ModifyProp field f))
+  where
+    (:~$) = Prop ... ModifyProp
+
+{- |
+  @since 0.2
+  Pure group modifier with @record@.
+  @set record [fields ::~$ f]@ modify values of @record@'s @fields@ using
+  @f record@ function.
+  
+  @
+    set record [[field] ::~$ f] === set record [field ::~ f]
+    set record [fields ::~$ const f] === set record [field :~$ f]
+  @
+-}
+pattern (::~$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field
+  ) => [field m record a] -> (record -> a -> a) -> Prop m field record
+pattern field ::~$ f <- (cast -> Just (Modify field f))
+  where
+    (::~$) = Prop ... Modify
+
+--------------------------------------------------------------------------------
+
+{- fmr monadic setters. -}
+
+{- |
+  @since 0.2
+  Monadic value setter. @set record [field :<= mvalue]@ set result of @mvalue@
+  to @record@'s @field@. Note that the @mvalue@ is evaluated every time a
+  @field@ value is assigned.
+  
+  @
+    set record [field :<= return val] === set record [field := val]
+    set record [field :<= mval] === do val <- mval; set record [field :<= val]
+  @
+-}
+pattern (:<=) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => field m record a -> m a -> Prop m field record
+pattern field :<= mval = [field] :<=$ mval
+
+{- |
+  @since 0.2
+  Monadic value setter with @record@. @set record [field :=< mvalue]@ set result
+  of @mvalue record@ to @record@'s @field@. Note that the @mvalue@ is evaluated
+  every time a @field@ value is assigned.
+  
+  @
+    set record [field :=< const val] === set record [field :<= val]
+    set record [field :=< f] === do val <- f record; set record [field := val]
+  @
+-}
+pattern (:=<) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => field m record a -> (record -> m a) -> Prop m field record
+pattern field :=< f = [field] :=<$ f
+
+{- |
+  @since 0.2
+  Monadic group setter. @set record [fields :<=$ mvalue]@ set result of @mvalue@
+  to @record@'s @fields@. Note that @mvalue@ is evaluated only once, on the
+  first assignment. Thus, the values of all the listed fields will be identical.
+  
+  @
+    set record [[field] :<=$ const f] === set record [field :<= val]
+    set record [fields :<=$ mval] === do val <- mval; set record [fields :<=$ val]
+  @
+-}
+pattern (:<=$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => [field m record a] -> m a -> Prop m field record
+pattern field :<=$ mval <- (cast -> Just (SetPropM field mval))
+  where
+    (:<=$) = Prop ... SetPropM
+
+{- |
+  @since 0.2
+  Monadic group setter with @record@. @set record [fields :=<$ f]@ set result of
+  @f record@ to @record@'s @fields@. Note that @f record@ is evaluated only
+  once, on the first assignment. Thus, the values of all the listed fields will
+  be identical.
+  
+  @
+    set record [[field] :=<$ f] === set record [field :=< val]
+    set record [fields :=<$ const val] = set record [fields :=$ val]
+    set record [fields :=<$ f] === do val <- f record; set record [fields :=$ val]
+  @
+-}
+pattern (:=<$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldSet field
+  ) => [field m record a] -> (record -> m a) -> Prop m field record
+pattern field :=<$ f <- (cast -> Just (SetRecordPropM field f))
+  where
+    (:=<$) = Prop ... SetRecordPropM
+
+--------------------------------------------------------------------------------
+
+{- fmr monadic updaters. -}
+
+{- |
+  @since 0.2
+  Monadic value modifier. @set record [field :<~ f]@ modifies value of
+  @record@'s @field@ using @f@ procedure. Note that the @mvalue@ is called every
+  time a @field@ value is assigned.
+  
+  @
+    set record [field :<~ return val] === set record [fields := val]
+  @
+-}
+pattern (:<~) ::
+  (
+    Typeable m, Typeable field, Typeable record, Monad m,
+    FieldModify field, FieldGet field
+  ) => field m record a -> (a -> m a) -> Prop m field record
+pattern field :<~ f = [field] :<~$ f
+
+{- |
+  @since 0.2
+  Monadic value modifier with @record@. @set record [field :<~ f]@ modifies
+  value of @record@'s @field@ using @f record@ procedure. Note that the
+  @f record@ is called every time a @field@ value is assigned.
+  
+  @
+    set record [field :~< const f] === set record [fields :<~ f]
+  @
+-}
+pattern (:~<) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field, FieldGet field
+  ) => field m record a -> (record -> a -> m a) -> Prop m field record
+pattern field :~< f = [field] :~<$ f
+
+{- |
+  @since 0.2
+  Monadic group modifier. @set record [fields :<~$ f]@ modifies values of
+  @record@'s @fields@ using @f@ procedure.
+  
+  @
+    set record [[field] :<~$ f] === set record [field :<~ f]
+    set record [fields :<~$ const mval] === set record [field :<=$ mval]
+  @
+-}
+pattern (:<~$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field, FieldGet field
+  ) => [field m record a] -> (a -> m a) -> Prop m field record
+pattern field :<~$ f <- (cast -> Just (ModifyPropM field f))
+  where
+    (:<~$) = Prop ... ModifyPropM
+
+{- |
+  @since 0.2
+  Monadic group modifier with @record@. @set record [fields :~<$ f]@ modifies
+  values of @record@'s @fields@ using @f record@ procedure. Note that the
+  @f record@ is called every time a @field@ value is assigned.
+  
+  @
+    set record [field :~<$ const f] === set record [fields :<~$ f]
+  @
+-}
+pattern (:~<$) ::
+  (
+    Typeable m, Typeable field, Typeable record,
+    Monad m, FieldModify field, FieldGet field
+  ) => [field m record a] -> (record -> a -> m a) -> Prop m field record
+pattern field :~<$ f <- (cast -> Just (ModifyM field f))
+  where
+    (:~<$) = Prop ... ModifyM
+
 --------------------------------------------------------------------------------
 
 -- | Service class for switchable types.
@@ -349,15 +598,18 @@ sets' :: (Monad m) => record -> [Prop m field record] -> m ()
 sets' =  set
 
 -- | 'switch' changes the value by n steps.
-switch :: (Monad m, FieldSwitch field, IsSwitch a) => field m record a -> Int -> Prop m field record
+switch :: (Monad m, FieldSwitch field, IsSwitch a) =>
+  field m record a -> Int -> Prop m field record
 switch field n = Prop (SwitchProp n field)
 
 -- | @'incr' field@ is same as @switch field 1@.
-incr :: (Monad m, FieldSwitch field, IsSwitch a) => field m record a -> Prop m field record
+incr :: (Monad m, FieldSwitch field, IsSwitch a) =>
+  field m record a -> Prop m field record
 incr =  Prop . SwitchProp 1
 
 -- | @'decr' field@ is same as @switch field (-1)@.
-decr :: (Monad m, FieldSwitch field, IsSwitch a) => field m record a -> Prop m field record
+decr :: (Monad m, FieldSwitch field, IsSwitch a) =>
+  field m record a -> Prop m field record
 decr =  Prop . SwitchProp (-1)
 
 --------------------------------------------------------------------------------
@@ -365,6 +617,4 @@ decr =  Prop . SwitchProp (-1)
 -- | @sdp@ @(.)@-like combinator.
 (...) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (...) =  (.) . (.)
-
-
 
