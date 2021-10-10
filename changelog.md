@@ -18,7 +18,7 @@ library `sdp` (since `sdp-0.2.1`)
 * Added new field `this` in module `Data.Field`
 * Added new fields `switch`, `incr` and `decr` in module `Data.Property`
 
-* `SField` replaced by `Field` pattern synonym
+* Removed `SField` type.
 * Removed `setProp` function in module `Data.Property`
 * Removed `incRecord` and `decRecord` methods in `SwitchProp` class
 * Removed `OSField` type synonym and `sfield` function (use `SField` instead)

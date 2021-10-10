@@ -48,8 +48,8 @@ Library
   
   exposed-modules:
     Data.Property
+    
     Data.Field
-
-
+    Data.Field.Observe
 
 
