@@ -12,7 +12,7 @@
 module Data.Field
 (
   -- * Field
-  Field (..),
+  Field (..), sfield,
   GetterFor, SetterFor, ModifierFor, ModifierMFor,
   
   -- * IsMVar and MonadVar
@@ -76,6 +76,13 @@ type ModifierFor  m record a = record -> (a -> a) -> m a
 
 -- | Monadic modifier type.
 type ModifierMFor m record a = record -> (a -> m a) -> m a
+
+--------------------------------------------------------------------------------
+
+-- | 'sfield' creates new field from given getter and setter.
+sfield :: (Monad m) => GetterFor m record a -> SetterFor m record a -> Field m record a
+sfield g s = Field g s (\ record  f -> do res <-  f <$> g record; s record res; return res)
+                       (\ record go -> do res <- go =<< g record; s record res; return res)
 
 --------------------------------------------------------------------------------
 
@@ -165,6 +172,4 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
-
-
 
