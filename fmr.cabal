@@ -30,7 +30,7 @@ tested-with:
 
 source-repository head
   type: git
-  location: https://github.com/andreymulik/fake-records
+  location: https://github.com/andreymulik/fmr
 
 ---            _      _____ ______ ______   ___  ______ __   __              ---
 ---           | |    |_   _|| ___ \| ___ \ / _ \ | ___ \\ \ / /              ---
