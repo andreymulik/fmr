@@ -44,7 +44,7 @@ observe field =
   in  Observe field og os om
 
 --------------------------------------------------------------------------------
-
+{-
 instance (FieldSwitch field) => FieldSwitch (Observe field)
   where
     switchRecord field record n = do
@@ -75,6 +75,6 @@ instance (FieldModify field, FieldGet field) => FieldModify (Observe field)
       res <- modifyRecordM (observed field) record upd
       onModify field record
       return res
-
+-}
 
 

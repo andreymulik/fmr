@@ -1,4 +1,6 @@
-{-# LANGUAGE Safe, GADTs #-}
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
+{-# LANGUAGE Safe, GADTs, TypeFamilies, TypeOperators, DataKinds #-}
+{-# LANGUAGE FlexibleContexts, UndecidableInstances #-}
 
 {- |
     License     :  BSD-style
@@ -15,18 +17,114 @@ module Data.MField
   module Data.Field,
   
   -- * Mutable field
-  MField (..), IsRef (..), MFieldRef, MFieldRep,
-  getter, setter, modifier, modifierM
+  GMField (..), MFieldC (..), getter, setter, modifier, modifierM,
+  
+  -- ** Mutable reference
+  IsRef (..), GMFieldRef, MFieldRef, MFieldRep
 )
 where
 
+import Data.Field.Object
 import Data.Typeable
 import Data.Property
 import Data.Field
+import Data.Kind
+
+import GHC.TypeLits
 
 import Control.Monad
 
 default ()
+
+--------------------------------------------------------------------------------
+
+{- |
+  'MFieldRef' is a structure containing accessors for a specific field of a
+  specific record. As a rule, it makes sense to store 'MFieldRef' in the record
+  to which it refers.
+-}
+type GMFieldRef m a = FObject (MFieldC m a)
+
+getRef :: FieldGetA ~:= cs => GMFieldRef m a cs -> MGetter m a
+getRef =  mFieldGetA.fromField
+
+setRef :: FieldSetA ~:= cs => GMFieldRef m a cs -> MSetter m a
+setRef =  mFieldSetA.fromField
+
+modifyRef :: FieldModifyA ~:= cs => GMFieldRef m a cs -> MModifier m a
+modifyRef =  mFieldModifyA.fromField
+
+modifyMRef :: FieldModifyMA ~:= cs => GMFieldRef m a cs -> MModifierM m a
+modifyMRef =  mFieldModifyMA.fromField
+
+getter :: (FieldGetA ~:= cs, MonadVar m) => GMField m record a cs
+       -> Field m record (m a)
+getter (GMField f) =
+  let Field g s m mm = this
+  in  Field (g.getRef.f) (s.getRef.f) (m.getRef.f) (mm.getRef.f)
+
+setter :: (FieldSetA ~:= cs, MonadVar m) => GMField m record a cs
+       -> Field m record (a -> m ())
+setter (GMField f) =
+  let Field g s m mm = this
+  in  Field (g.setRef.f) (s.setRef.f) (m.setRef.f) (mm.setRef.f)
+
+modifier :: (FieldModifyA ~:= cs, MonadVar m) => GMField m record a cs
+         -> Field m record ((a -> a) -> m a)
+modifier (GMField f) =
+  let Field g s m mm = this
+  in  Field (g.modifyRef.f) (s.modifyRef.f) (m.modifyRef.f) (mm.modifyRef.f)
+
+modifierM :: (FieldModifyMA ~:= cs, MonadVar m) => GMField m record a cs
+          -> Field m record ((a -> m a) -> m a)
+modifierM (GMField f) =
+  let Field g s m mm = this
+  in  Field (g.modifyMRef.f) (s.modifyMRef.f) (m.modifyMRef.f) (mm.modifyMRef.f)
+
+--------------------------------------------------------------------------------
+
+class IsRef ref m a | ref -> m, ref -> a
+  where
+    -- | Create new reference to the given variable.
+    link :: (MonadVar m) => Var m a -> m ref
+    
+    -- | Get an associated 'MFieldRef' reference to the given reference.
+    ref :: (MonadVar m) => ref -> MFieldRef m a
+
+--------------------------------------------------------------------------------
+
+-- | 'MFieldRep' is a helper type that stores a variable and its accessors.
+data MFieldRep m a = MFieldRep !(Var m a) {-# UNPACK #-} !(MFieldRef m a)
+  deriving ( Typeable )
+
+instance IsRef (MFieldRep m a) m a
+  where
+    link x = MFieldRep x <$> link x
+    ref (MFieldRep _ fr) = fr
+
+--------------------------------------------------------------------------------
+
+data family MFieldC (m :: Type -> Type) a (c :: Symbol) :: Type
+
+newtype instance MFieldC m a FieldGetA = MFieldGetA
+  {mFieldGetA :: MGetter m a}
+
+type MGetter m a = Var m (m a)
+
+newtype instance MFieldC m a FieldSetA = MFieldSetA
+  {mFieldSetA :: MSetter m a}
+
+type MSetter m a = Var m (a -> m ())
+
+newtype instance MFieldC m a FieldModifyA = MFieldModifyA
+  {mFieldModifyA :: MModifier m a}
+
+type MModifier m a = Var m ((a -> a) -> m a)
+
+newtype instance MFieldC m a FieldModifyMA = MFieldModifyMA
+  {mFieldModifyMA :: MModifierM m a}
+
+type MModifierM m a = Var m ((a -> m a) -> m a)
 
 --------------------------------------------------------------------------------
 
@@ -64,41 +162,28 @@ default ()
       print =<< get field record
   @
 -}
-data MField m record a
-  where
-    MField :: (MonadVar m) => (record -> MFieldRef m a) -> MField m record a
+newtype GMField m record a cs = GMField {fromGMField :: record -> GMFieldRef m a cs}
   deriving ( Typeable )
 
-instance FieldGet MField
+instance (MonadVar m, FieldGetA ~:= cs) => IsField (GMField m record e)
+                                      (FieldC m record e) FieldGetA cs
   where
-    getRecord (MField field) = join.get this.getRef.field
+    fromField (GMField f) = FieldGetA (join.getField this.getRef.f)
 
-instance FieldSet MField
+instance (MonadVar m, FieldSetA ~:= cs) => IsField (GMField m record e)
+                                      (FieldC m record e) FieldSetA cs
   where
-    setRecord (MField field) record value = do
-      g <- get this.setRef.field $ record; g value
+    fromField (GMField f) = FieldSetA $ ap' (getField this.setRef.f)
 
-instance FieldModify MField
+instance (MonadVar m, FieldModifyA ~:= cs) => IsField (GMField m record e)
+                                      (FieldC m record e) FieldModifyA cs
   where
-    modifyRecord (MField field) record upd = do
-      m <- get this.modifyRef.field $ record; m upd
-    
-    modifyRecordM (MField field) record go = do
-      mm <- get this.modifyMRef.field $ record; mm go
+    fromField (GMField f) = FieldModifyA $ ap' (getField this.modifyRef.f)
 
-instance FieldSwitch MField
+instance (MonadVar m, FieldModifyMA ~:= cs) => IsField (GMField m record e)
+                                      (FieldC m record e) FieldModifyMA cs
   where
-    switchRecord field record = void.modifyRecord field record.toggle
-
---------------------------------------------------------------------------------
-
-class IsRef ref
-  where
-    -- | Create new reference to the given variable.
-    link :: (MonadVar m) => Var m a -> m (ref m a)
-    
-    -- | Get an associated 'MFieldRef' reference to the given reference.
-    ref :: (MonadVar m) => ref m a -> MFieldRef m a
+    fromField (GMField f) = FieldModifyMA $ ap' (getField this.modifyMRef.f)
 
 --------------------------------------------------------------------------------
 
@@ -107,49 +192,24 @@ class IsRef ref
   specific record. As a rule, it makes sense to store 'MFieldRef' in the record
   to which it refers.
 -}
-data MFieldRef m a = MFieldRef
-  {
-    getRef     :: !(Var m (m a)),
-    setRef     :: !(Var m (a -> m ())),
-    modifyRef  :: !(Var m ((a -> a) -> m a)),
-    modifyMRef :: !(Var m ((a -> m a) -> m a))
-  } deriving ( Typeable )
+type MFieldRef m a = GMFieldRef m a
+  [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
 
-instance IsRef MFieldRef
+instance IsRef (MFieldRef m a) m a
   where
     ref    = id
-    link x = liftM4 MFieldRef (var (g x)) (var (s x)) (var (m x)) (var (mm x))
-      where
-        Field g s m mm = this
-
-getter :: MField m record a -> Field m record (m a)
-getter (MField f) =
-  let Field g s m mm = this
-  in  Field (g.getRef.f) (s.getRef.f) (m.getRef.f) (mm.getRef.f)
-
-setter :: MField m record a -> Field m record (a -> m ())
-setter (MField f) =
-  let Field g s m mm = this
-  in  Field (g.setRef.f) (s.setRef.f) (m.setRef.f) (mm.setRef.f)
-
-modifier :: MField m record a -> Field m record ((a -> a) -> m a)
-modifier (MField f) =
-  let Field g s m mm = this
-  in  Field (g.modifyRef.f) (s.modifyRef.f) (m.modifyRef.f) (mm.modifyRef.f)
-
-modifierM :: MField m record a -> Field m record ((a -> m a) -> m a)
-modifierM (MField f) =
-  let Field g s m mm = this
-  in  Field (g.modifyMRef.f) (s.modifyMRef.f) (m.modifyMRef.f) (mm.modifyMRef.f)
+    link x = do
+      let Field g s m mm = this
+      
+      g' <- var (g x); s' <- var (s x); m' <- var (m x); mm' <- var (mm x)
+      return $ MFieldGetA    g' :++ MFieldSetA      s' :++
+               MFieldModifyA m' :++ MFieldModifyMA mm' :++ FObjectEmpty
 
 --------------------------------------------------------------------------------
 
--- | 'MFieldRep' is a helper type that stores a variable and its accessors.
-data MFieldRep m a = MFieldRep !(Var m a) {-# UNPACK #-} !(MFieldRef m a)
-  deriving ( Typeable )
+ap' :: Monad m => (a -> m (b -> m c)) -> a -> b -> m c
+ap' f = \ x y -> ($ y) =<< f x
 
-instance IsRef MFieldRep
-  where
-    link x = MFieldRep x <$> link x
-    ref (MFieldRep _ fr) = fr
+
+
 

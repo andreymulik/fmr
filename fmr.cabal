@@ -1,5 +1,5 @@
 name:          fmr
-version:       0.2
+version:       0.3
 category:      Syntax
 
 synopsis:      Fields for Monadic Records library
@@ -51,5 +51,10 @@ Library
     Data.MField
     
     Data.Field.Observe
+    Data.Field.Object
     Data.Field
+
+
+
+
 

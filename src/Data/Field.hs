@@ -1,5 +1,6 @@
-{-# LANGUAGE UndecidableSuperClasses, MultiParamTypeClasses, FlexibleInstances #-}
-{-# LANGUAGE Trustworthy, TypeFamilies, FlexibleContexts, PatternSynonyms #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns, DataKinds, PolyKinds, TypeFamilies #-}
+{-# LANGUAGE Trustworthy, UndecidableSuperClasses, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
 
 {- |
     License     :  BSD-style
@@ -12,18 +13,20 @@
 module Data.Field
 (
   -- * Field
-  Field (..), sfield,
-  GetterFor, SetterFor, ModifierFor, ModifierMFor,
+  Field, GField ( Field, getField, setField, modifyField, modifyFieldM ), self,
+  sfield,
+  
+  FObject, GetterFor, SetterFor, ModifierFor, ModifierMFor,
   
   -- * IsMVar and MonadVar
   IsMVar (..), MonadVar (..)
 )
 where
 
-import Prelude hiding ( (.), id )
+import Data.Field.Object
 import Data.Property
 import Data.Typeable
-import Data.Functor
+
 import Data.IORef
 import Data.STRef
 import Data.Kind
@@ -31,80 +34,47 @@ import Data.Kind
 import GHC.Conc
 
 import Control.Concurrent.MVar
-import Control.Category
 import Control.Monad.ST
-import Control.Monad
 
 default ()
 
 --------------------------------------------------------------------------------
 
-{- |
-  Normal field, which contain getter, setter and modifier.
-  
-  Since @fmr-0.2@, you can also combine fmr fields using @('.')@ and @'id'@ from
-  the 'Category' class:
-  
-  @
-    outer :: (Monad m) => Field m outer inner
-    inner :: (Monad m) => Field m inner value
-    
-    field :: (Monad m) => Field m outer value
-    field =  outer.inner
-  @
--}
-data Field m record a = Field
-  {
-    -- | Field getter
-    getField :: !(GetterFor m record a),
-    -- | Field setter
-    setField :: !(SetterFor m record a),
-    -- | Field modifier
-    modifyField :: !(ModifierFor m record a),
-    -- | Monadic field modifier
-    modifyFieldM :: !(ModifierMFor m record a)
-  } deriving ( Typeable )
+newtype GField m record a (as :: [k]) = GField
+    {fromGField :: FObject (FieldC m record a) as}
+  deriving ( Typeable )
 
--- | Getter type.
-type GetterFor m record a = record -> m a
-
--- | Setter type.
-type SetterFor m record a = record -> a -> m ()
-
--- | Modifier type.
-type ModifierFor  m record a = record -> (a -> a) -> m a
-
--- | Monadic modifier type.
-type ModifierMFor m record a = record -> (a -> m a) -> m a
+instance (IsField (FObject (FieldC m record e)) (FieldC m record e) a as)
+       => IsField (GField m record e) (FieldC m record e) a as
+  where
+    fromField = fromField.fromGField
 
 --------------------------------------------------------------------------------
+
+-- | Normal field, which contain getter, setter and modifier.
+type Field m record a = GField m record a
+  [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
+
+pattern Field :: GetterFor   m record a -> SetterFor    m record a
+              -> ModifierFor m record a -> ModifierMFor m record a
+              -> Field m record a
+pattern Field{getField, setField, modifyField, modifyFieldM} <-
+    (
+      (\ f -> (getRecord f, setRecord f, modifyRecord f, modifyRecordM f)) ->
+      (getField, setField, modifyField, modifyFieldM)
+    )
+  where
+    Field g s m mm = GField
+      (
+        FieldGetA      g :++ FieldSetA  s :++ FieldModifyA m :++
+        FieldModifyMA mm :++ FObjectEmpty
+      )
 
 -- | 'sfield' creates new field from given getter and setter.
 sfield :: (Monad m) => GetterFor m record a -> SetterFor m record a -> Field m record a
-sfield g s = Field g s (\ record  f -> do res <-  f <$> g record; s record res; return res)
-                       (\ record go -> do res <- go =<< g record; s record res; return res)
-
---------------------------------------------------------------------------------
-
-instance (Monad m) => Category (Field m)
-  where
-    Field g1 s1 m1 mm1 . Field g2 _ _ _ = Field (g1 <=< g2) s3 m3 mm3
-      where
-        mm3 record   go  = flip mm1  go  =<< g2 record
-        m3  record   f   = flip m1   f   =<< g2 record
-        s3  record value = flip s1 value =<< g2 record
-    
-    id = Field return (\ _ _ -> return ()) (\ x f -> return (f x)) (flip ($))
-
---------------------------------------------------------------------------------
-
-instance FieldGet    Field where getRecord    = getField
-instance FieldSet    Field where setRecord    = setField
-instance FieldModify Field where modifyRecord = modifyField
-instance FieldSwitch Field
-  where
-    switchRecord field record = void .
-      modifyRecord field record . toggle
+sfield g s = Field g s
+  (\ record  f -> do res <-  f <$> g record; s record res; return res)
+  (\ record go -> do res <- go =<< g record; s record res; return res)
 
 --------------------------------------------------------------------------------
 
@@ -121,6 +91,9 @@ class (Monad m, MonadVar m) => IsMVar m var
     
     -- | Create and initialize new mutable variable.
     var :: a -> m (var a)
+
+self :: (MonadVar m) => Field m (Var m a) a
+self =  this
 
 instance IsMVar (ST s) (STRef s)
   where
@@ -172,4 +145,6 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
+
+
 
