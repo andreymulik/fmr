@@ -1,6 +1,6 @@
-{-# LANGUAGE PatternSynonyms, ViewPatterns, DataKinds, PolyKinds, TypeFamilies #-}
-{-# LANGUAGE Trustworthy, UndecidableSuperClasses, MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, UndecidableSuperClasses #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns, TypeFamilies, TypeOperators #-}
+{-# LANGUAGE Trustworthy, DataKinds #-}
 
 {- |
     License     :  BSD-style
@@ -12,20 +12,21 @@
 -}
 module Data.Field
 (
-  -- * Field
-  Field, GField ( Field, getField, setField, modifyField, modifyFieldM ), self,
-  sfield,
+  -- * Exports
+  module Data.Field.Object,
+  module Data.Property,
   
-  FObject, GetterFor, SetterFor, ModifierFor, ModifierMFor,
+  -- * Field
+  FObject ( Field, getField, setField, modifyField, modifyFieldM ),
+  Field, GField, sfield,
   
   -- * IsMVar and MonadVar
-  IsMVar (..), MonadVar (..)
+  IsMVar (..), MonadVar (..), self
 )
 where
 
 import Data.Field.Object
 import Data.Property
-import Data.Typeable
 
 import Data.IORef
 import Data.STRef
@@ -40,38 +41,27 @@ default ()
 
 --------------------------------------------------------------------------------
 
-newtype GField m record a (as :: [k]) = GField
-    {fromGField :: FObject (FieldC m record a) as}
-  deriving ( Typeable )
+type GField m record e = FObject (FieldC m record e)
 
-instance (IsField (FObject (FieldC m record e)) (FieldC m record e) a as)
-       => IsField (GField m record e) (FieldC m record e) a as
-  where
-    fromField = fromField.fromGField
+-- | Normal field, which contain getter, setter and modifier.
+type Field m record e = GField m record e [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
 
 --------------------------------------------------------------------------------
 
--- | Normal field, which contain getter, setter and modifier.
-type Field m record a = GField m record a
-  [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
-
-pattern Field :: GetterFor   m record a -> SetterFor    m record a
-              -> ModifierFor m record a -> ModifierMFor m record a
-              -> Field m record a
+pattern Field :: GetterFor   m record e -> SetterFor    m record e
+              -> ModifierFor m record e -> ModifierMFor m record e
+              -> Field m record e
 pattern Field{getField, setField, modifyField, modifyFieldM} <-
     (
       (\ f -> (getRecord f, setRecord f, modifyRecord f, modifyRecordM f)) ->
       (getField, setField, modifyField, modifyFieldM)
     )
   where
-    Field g s m mm = GField
-      (
-        FieldGetA      g :++ FieldSetA  s :++ FieldModifyA m :++
-        FieldModifyMA mm :++ FObjectEmpty
-      )
+    Field g s m mm = FieldGetA      g :++ FieldSetA  s :++ FieldModifyA m :++
+                     FieldModifyMA mm :++ FObjectEmpty
 
 -- | 'sfield' creates new field from given getter and setter.
-sfield :: (Monad m) => GetterFor m record a -> SetterFor m record a -> Field m record a
+sfield :: Monad m => GetterFor m record e -> SetterFor m record e -> Field m record e
 sfield g s = Field g s
   (\ record  f -> do res <-  f <$> g record; s record res; return res)
   (\ record go -> do res <- go =<< g record; s record res; return res)
@@ -84,15 +74,15 @@ sfield g s = Field g s
   Please note that you cannot create 'IsMVar' and 'MonadVar' instances for some
   monad separately.
 -}
-class (Monad m, MonadVar m) => IsMVar m var
+class MonadVar m => IsMVar m var
   where
     -- | 'this' is common variable access field.
-    this :: Field m (var a) a
+    this :: Field m (var e) e
     
     -- | Create and initialize new mutable variable.
-    var :: a -> m (var a)
+    var :: e -> m (var e)
 
-self :: (MonadVar m) => Field m (Var m a) a
+self :: MonadVar m => Field m (Var m e) e
 self =  this
 
 instance IsMVar (ST s) (STRef s)

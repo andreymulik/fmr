@@ -1,5 +1,6 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, TypeFamilies, GADTs #-}
-{-# LANGUAGE Safe, TypeOperators, ConstraintKinds, DataKinds, PolyKinds #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE Safe, GADTs, MultiParamTypeClasses, FlexibleInstances #-}
+{-# LANGUAGE TypeOperators, TypeFamilies #-}
 
 {- |
     License     :  BSD-style
@@ -12,7 +13,7 @@
 module Data.Field.Object
 (
   -- * Generalized field type
-  FObject (..), IsField (..), type (~<=), type (~</=), type (~:=),
+  FObject ( .., FObjectElem ), IsField (..), type (~:=), type (~<=), type (~</=),
   
   -- * Field convention
   FieldC (..), FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA,
@@ -22,89 +23,93 @@ where
 
 import Data.Kind
 
+import GHC.TypeLits
+
 default ()
 
 infixr 6 :++
 
 --------------------------------------------------------------------------------
 
-data FObject (conv :: k -> Type) (as :: [k])
+data FObject c as
   where
-    FObjectEmpty :: FObject conv '[]
-    (:++)        :: a ~</= as => conv a -> FObject conv as -> FObject conv (a : as)
+    FObjectEmpty :: FObject c '[]
+    (:++)        :: a ~</= as => c a -> FObject c as -> FObject c (a : as)
+
+{-# COMPLETE FObjectElem #-}
+
+pattern FObjectElem :: a ~:= as => c a -> FObject c as
+pattern FObjectElem k <- (getFObject -> k)
 
 --------------------------------------------------------------------------------
 
-class a ~<= as => IsField field conv (a :: k) as
+class IsField field c a
   where
-    fromField :: field as -> conv a
+    fromField :: a ~:= as => field as -> c a
 
-instance a ~:= as => IsField (FObject f) f a as where fromField = getFObject
-
---------------------------------------------------------------------------------
-
-data family FieldC (m :: Type -> Type) record a (c :: k) :: Type
+instance IsField (FObject c) c a where fromField = getFObject
 
 --------------------------------------------------------------------------------
 
-newtype instance FieldC m record a FieldGetA = FieldGetA
-  {fieldGetA :: GetterFor m record a}
+data family FieldC (m :: Type -> Type) record e (c :: Symbol) :: Type
+
+--------------------------------------------------------------------------------
+
+newtype instance FieldC m record e FieldGetA = FieldGetA
+  {fieldGetA :: GetterFor m record e}
 
 type FieldGetA = "fmr.field.get"
 
-type GetterFor m record a = record -> m a
+type GetterFor m record e = record -> m e
 
 --------------------------------------------------------------------------------
 
-newtype instance FieldC m record a FieldSetA = FieldSetA
-  {fieldSetA :: SetterFor m record a}
+newtype instance FieldC m record e FieldSetA = FieldSetA
+  {fieldSetA :: SetterFor m record e}
 
 type FieldSetA = "fmr.field.set"
 
-type SetterFor m record a = record -> a -> m ()
+type SetterFor m record e = record -> e -> m ()
 
 --------------------------------------------------------------------------------
 
-newtype instance FieldC m record a FieldModifyA = FieldModifyA
-  {fieldModifyA :: ModifierFor m record a}
+newtype instance FieldC m record e FieldModifyA = FieldModifyA
+  {fieldModifyA :: ModifierFor m record e}
 
 type FieldModifyA = "fmr.field.modify"
 
-type ModifierFor m record a = record -> (a -> a) -> m a
+type ModifierFor m record e = record -> (e -> e) -> m e
 
 --------------------------------------------------------------------------------
 
-newtype instance FieldC m record a FieldModifyMA = FieldModifyMA
-  {fieldModifyMA :: ModifierMFor m record a}
+newtype instance FieldC m record e FieldModifyMA = FieldModifyMA
+  {fieldModifyMA :: ModifierMFor m record e}
 
 type FieldModifyMA = "fmr.field.moifyM"
 
-type ModifierMFor m record a = record -> (a -> m a) -> m a
+type ModifierMFor m record e = record -> (e -> m e) -> m e
 
 --------------------------------------------------------------------------------
 
-type family FObjectElem c cs
+type family FObjectElem (c :: Symbol) cs
   where
     FObjectElem _   '[ ]   = 'False
     FObjectElem c (c :  _) = 'True
     FObjectElem c (_ : cs) = FObjectElem c cs
 
-type a  ~<= as = FObjectElem a as ~ 'True
-type a ~</= as = FObjectElem a as ~ 'False
+type c  ~<= cs = FObjectElem c cs ~ 'True
+type c ~</= cs = FObjectElem c cs ~ 'False
 
 --------------------------------------------------------------------------------
 
-class a ~<= as => FObjectGet a as
+class a ~<= as => a ~:= as
   where
-    getFObject :: FObject f as -> f a
+    getFObject :: FObject c as -> c a
 
-type a ~:= as = FObjectGet a as
+instance {-# INCOHERENT #-} a ~:= (a : as) where getFObject (a :++ _) = a
 
-instance {-# INCOHERENT #-} FObjectGet a (a : as) where getFObject (a :++ _) = a
-
-instance {-# INCOHERENT #-} (a ~<= (a' : as), FObjectGet a as) => FObjectGet a (a' : as)
+instance {-# INCOHERENT #-} (a ~<= (a' : as), a ~:= as) => a ~:= (a' : as)
   where
     getFObject (_ :++ as) = getFObject as
-
 
 
