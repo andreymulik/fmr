@@ -39,7 +39,7 @@ module Data.Property
   pattern (:~), pattern (::~), pattern (:~$), pattern (::~$),
   
   -- ** Monadic modify properties
-  FieldModifyM, FieldModifyMA, ModifierMFor, modifyRecordM ,
+  FieldModifyM, FieldModifyMA, ModifierMFor, modifyRecordM, modifyRecordsM,
   
   -- *** Monadic modify properties
   pattern (:<~), pattern (:~<), pattern (:<~$), pattern (:~<$)
