@@ -17,6 +17,8 @@ build-type:    Simple
 cabal-version: >=1.10
 
 tested-with:
+  -- lts-7.0
+  GHC == 8.0.1,
   -- lts-7.24
   GHC == 8.0.1,
   -- lts-9.21
@@ -26,7 +28,13 @@ tested-with:
   -- lts-12.26
   GHC == 8.4.4,
   -- lts-18.8
-  GHC == 8.10.6
+  GHC == 8.10.6,
+  -- lts-18.18
+  GHC == 8.10.7,
+  -- nightly-2021-12-10
+  GHC == 9.0.1,
+  -- nightly-2022-02-01
+  GHC == 9.0.2
 
 source-repository head
   type: git
@@ -53,8 +61,5 @@ Library
     Data.Field.Observe
     Data.Field.Object
     Data.Field
-
-
-
 
 

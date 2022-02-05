@@ -1,11 +1,11 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, UndecidableSuperClasses #-}
+{-# LANGUAGE Trustworthy, FlexibleContexts, UndecidableSuperClasses, DataKinds #-}
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns, TypeFamilies, TypeOperators #-}
-{-# LANGUAGE Trustworthy, DataKinds #-}
 
 {- |
     License     :  BSD-style
     Module      :  Data.Field
-    Copyright   :  (c) Andrey Mulik 2020-2021
+    Copyright   :  (c) Andrey Mulik 2020-2022
     Maintainer  :  work.a.mulik@gmail.com
     
     @Data.Field@ provides immutable field type for record-style operations.
@@ -21,13 +21,12 @@ module Data.Field
   Field, GField, sfield,
   
   -- * IsMVar and MonadVar
-  IsMVar (..), MonadVar (..), self
+  IsMVar (..), MonadVar (..)
 )
 where
 
 import Data.Field.Object
 import Data.Property
-
 import Data.IORef
 import Data.STRef
 import Data.Kind
@@ -47,6 +46,8 @@ type GField m record e = FObject (FieldC m record e)
 type Field m record e = GField m record e [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
 
 --------------------------------------------------------------------------------
+
+{-# COMPLETE Field #-}
 
 pattern Field :: GetterFor   m record e -> SetterFor    m record e
               -> ModifierFor m record e -> ModifierMFor m record e
@@ -74,16 +75,13 @@ sfield g s = Field g s
   Please note that you cannot create 'IsMVar' and 'MonadVar' instances for some
   monad separately.
 -}
-class MonadVar m => IsMVar m var
+class MonadVar m => IsMVar m var | var -> m
   where
     -- | 'this' is common variable access field.
     this :: Field m (var e) e
     
     -- | Create and initialize new mutable variable.
     var :: e -> m (var e)
-
-self :: MonadVar m => Field m (Var m e) e
-self =  this
 
 instance IsMVar (ST s) (STRef s)
   where
@@ -117,8 +115,6 @@ instance IsMVar STM TVar
         modifyMTVar tvar f = do res <- f =<< readTVar tvar; res <$ writeTVar tvar res
         modifyTVar  tvar f = do res <- f <$> readTVar tvar; res <$ writeTVar tvar res
 
---------------------------------------------------------------------------------
-
 {- |
   'MonadVar' is a class of monads for which defined at least one type of mutable
   variable.
@@ -135,6 +131,5 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
-
 
 
