@@ -45,8 +45,7 @@ module Data.Property
   pattern (:<~), pattern (:~<), pattern (:<~$), pattern (:~<$),
   
   -- * Field operations
-  FieldAdd (..), FieldSub (..), FieldNum (..),
-  FieldIntegral (..), FieldFractional (..)
+  (+=), (-=), (*=), (=/), (<>=), fieldDiv, fieldMod, fieldQuot, fieldRem
 )
 where
 
@@ -57,6 +56,10 @@ import Data.Kind
 import Control.Monad
 
 default ()
+
+infixl 7 *=, =/, `fieldDiv`, `fieldMod`, `fieldQuot`, `fieldRem`
+infixl 6 +=, -=
+infixr 6 <>=
 
 --------------------------------------------------------------------------------
 
@@ -520,56 +523,48 @@ pattern fields :~<$ f = Prop (ModifyM fields f)
 
 --------------------------------------------------------------------------------
 
-class Monad m => FieldAdd field m record e | field -> m, field -> record, field -> e
-  where
-    (+=) :: (FieldModifyA ~?= field, FieldGetA ~?= field)
-         => field -> field -> record -> m (Prop m field record)
+-- | Add the given number to the current field value.
+(+=) :: (FieldModify field m record e, Monad m, Num e)
+     => field -> e -> Prop m field record
+x += y = Property (ModifyProp [x] (+ y))
 
-class Monad m => FieldSub field m record e | field -> m, field -> record, field -> e
-  where
-    (-=) :: (FieldModifyA ~?= field, FieldGetA ~?= field)
-         => field -> field -> record -> m (Prop m field record)
+-- | SUbtract the given number from the current field value.
+(-=) :: (FieldModify field m record e, Monad m, Num e)
+     => field -> e -> Prop m field record
+x -= y = Property (ModifyProp [x] (subtract y))
 
-class (Num n, FieldAdd field m record n, FieldSub field m record n) => FieldNum field m record n
-  where
-    (*=) :: (FieldGetA ~?= field, FieldModifyA ~?= field)
-         => field -> field -> record -> m (Prop m field record)
+-- | Multiply the current field value by the given number.
+(*=) :: (FieldModify field m record e, Monad m, Num e)
+     => field -> e -> Prop m field record
+x *= y = Property (ModifyProp [x] (* y))
 
---------------------------------------------------------------------------------
+-- Apply @('<>')@ to the current value of the field and the passed argument
+(<>=) :: (FieldModify field m record e, Monad m, Semigroup e)
+     => field -> e -> Prop m field record
+x <>= y = Property (ModifyProp [x] (<> y))
 
-instance (Num n, Monad m) => FieldAdd (FObject (FieldC m record n) as) m record n
-  where
-    x += y = fmap (Property . ModifyProp [x] . (+)) . getRecord y
+-- | Divide the current field value by the passed number.
+(=/) :: (FieldModify field m record e, Monad m, Fractional e)
+     => field -> e -> Prop m field record
+x =/ y = Property (ModifyProp [x] (/ y))
 
-instance (Num n, Monad m) => FieldSub (FObject (FieldC m record n) as) m record n
-  where
-    x -= y = fmap (Property . ModifyProp [x] . subtract) . getRecord y
+-- | Apply 'div' to the current value of the field and the passed argument
+fieldDiv :: (FieldModify field m record e, Monad m, Integral e)
+         => field -> e -> Prop m field record
+fieldDiv x y = Property (ModifyProp [x] (`div` y))
 
-instance (Num n, Monad m) => FieldNum (FObject (FieldC m record n) as) m record n
-  where
-    x *= y = fmap (Property . ModifyProp [x] . (*)) . getRecord y
+-- | Apply 'mod' to the current value of the field and the passed argument
+fieldMod :: (FieldModify field m record e, Monad m, Integral e)
+         => field -> e -> Prop m field record
+fieldMod x y = Property (ModifyProp [x] (`mod` y))
 
---------------------------------------------------------------------------------
+-- | Apply 'quot' to the current value of the field and the passed argument
+fieldQuot :: (FieldModify field m record e, Monad m, Integral e)
+          => field -> e -> Prop m field record
+fieldQuot x y = Property (ModifyProp [x] (`quot` y))
 
-class (FieldNum field m record i, Integral i) => FieldIntegral field m record i
-  where
-    fieldDiv, fieldMod, fieldQuot, fieldRem
-      :: (FieldGetA ~?= field, FieldModifyA ~?= field)
-      => field -> field -> record -> m (Prop m field record)
-
-instance (Monad m, Integral i) => FieldIntegral (FObject (FieldC m record i) as) m record i
-  where
-    fieldDiv  x y = fmap (Property . ModifyProp [x] . flip  div) . getRecord y
-    fieldMod  x y = fmap (Property . ModifyProp [x] . flip  mod) . getRecord y
-    fieldQuot x y = fmap (Property . ModifyProp [x] . flip quot) . getRecord y
-    fieldRem  x y = fmap (Property . ModifyProp [x] . flip  rem) . getRecord y
-
-class (Monad m, FieldNum field m record f, Fractional f) => FieldFractional field m record f
-  where
-    (=/) :: (FieldGetA ~?= field, FieldModifyA ~?= field)
-         => field -> field -> record -> m (Prop m field record)
-
-instance (Monad m, Fractional f) => FieldFractional (FObject (FieldC m record f) as) m record f
-  where
-    x =/ y = fmap (Property . ModifyProp [x] . flip (/)) . getRecord y
+-- | Apply 'rem' to the current value of the field and the passed argument
+fieldRem :: (FieldModify field m record e, Monad m, Integral e)
+         => field -> e -> Prop m field record
+fieldRem x y = Property (ModifyProp [x] (`rem` y))
 

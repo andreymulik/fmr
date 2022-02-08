@@ -1,6 +1,7 @@
-{-# LANGUAGE Trustworthy, FlexibleContexts, UndecidableSuperClasses, DataKinds #-}
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
-{-# LANGUAGE PatternSynonyms, ViewPatterns, TypeFamilies, TypeOperators #-}
+{-# LANGUAGE Trustworthy, PatternSynonyms, ViewPatterns, DefaultSignatures #-}
+{-# LANGUAGE UndecidableSuperClasses, FlexibleContexts, TypeOperators #-}
+{-# LANGUAGE TypeFamilies, DataKinds #-}
 
 {- |
     License     :  BSD-style
@@ -18,7 +19,7 @@ module Data.Field
   
   -- * Field
   FObject ( Field, getField, setField, modifyField, modifyFieldM ),
-  Field, GField, sfield,
+  Field, GField, DField, DMField, sfield,
   
   -- * IsMVar and MonadVar
   IsMVar (..), MonadVar (..)
@@ -40,10 +41,29 @@ default ()
 
 --------------------------------------------------------------------------------
 
+-- | Normal field, which contain getter, setter and modifiers (pure and monadic).
+type Field m record e = GField m record e [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
+
+{- |
+  @since 0.3
+  
+  Generalized field with 'FieldC' convention.
+-}
 type GField m record e = FObject (FieldC m record e)
 
--- | Normal field, which contain getter, setter and modifier.
-type Field m record e = GField m record e [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
+{- |
+  @since 0.3
+  
+  Dummy field type, pure accessor to variable.
+-}
+type DField var record e = record -> var e
+
+{- |
+  @since 0.3
+  
+  Dummy field type, monadic accessor to variable.
+-}
+type DMField m var record e = record -> m (var e)
 
 --------------------------------------------------------------------------------
 
@@ -79,41 +99,37 @@ class MonadVar m => IsMVar m var | var -> m
   where
     -- | 'this' is common variable access field.
     this :: Field m (var e) e
+    this =  subfield id
+    
+    -- | 'subfield' is common variable access field.
+    default subfield :: Default
+      (
+        DefaultField (DField var record e) (FieldC m record e)
+          [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
+      ) => DField var record e -> Field m record e
+    
+    subfield :: DField var record e -> Field m record e
+    subfield =  defaultField
+    
+    -- | 'subfieldM' is mutable field variable accessor.
+    default subfieldM :: Default
+      (
+        DefaultField (DMField m var record e) (FieldC m record e)
+          [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
+      ) => DMField m var record e -> Field m record e
+    
+    subfieldM :: DMField m var record e -> Field m record e
+    subfieldM =  defaultField
     
     -- | Create and initialize new mutable variable.
     var :: e -> m (var e)
 
-instance IsMVar (ST s) (STRef s)
-  where
-    var  = newSTRef
-    this = Field readSTRef writeSTRef modify' modifyM'
-      where
-        modifyM' ref f = do res <- f =<< readSTRef ref; res <$ writeSTRef ref res
-        modify'  ref f = do res <- f <$> readSTRef ref; res <$ writeSTRef ref res
+instance IsMVar (ST s) (STRef s) where var = newSTRef
+instance IsMVar IO     IORef     where var = newIORef
+instance IsMVar IO     MVar      where var = newMVar
+instance IsMVar STM    TVar      where var = newTVar
 
-instance IsMVar IO IORef
-  where
-    var  = newIORef
-    this = Field readIORef writeIORef modify' modifyM'
-      where
-        modifyM' ref f = do val <- f =<< readIORef ref; writeIORef ref val; return val
-        modify'  ref f = atomicModifyIORef' ref (\ a -> let b = f a in (b, b))
-
-instance IsMVar IO MVar
-  where
-    var  = newMVar
-    this = Field readMVar putMVar modify' modifyM'
-      where
-        modifyM' mvar f = mvar `modifyMVarMasked` \ a -> do b <- f a; return (b, b)
-        modify'  mvar f = mvar `modifyMVar` \ a -> let b = f a in return (b, b)
-
-instance IsMVar STM TVar
-  where
-    var  = newTVar
-    this = Field readTVar writeTVar modifyTVar modifyMTVar
-      where
-        modifyMTVar tvar f = do res <- f =<< readTVar tvar; res <$ writeTVar tvar res
-        modifyTVar  tvar f = do res <- f <$> readTVar tvar; res <$ writeTVar tvar res
+--------------------------------------------------------------------------------
 
 {- |
   'MonadVar' is a class of monads for which defined at least one type of mutable
@@ -131,5 +147,4 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
-
 
