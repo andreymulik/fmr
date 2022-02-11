@@ -14,7 +14,6 @@
 module Data.Field
 (
   -- * Exports
-  module Data.Field.Object,
   module Data.Property,
   
   -- * Field
@@ -147,4 +146,5 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
+
 

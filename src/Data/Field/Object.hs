@@ -18,7 +18,7 @@ module Data.Field.Object
   type (~:=), type (~<=), type (~</=),
   
   -- ** Default field
-  Default (..), DefaultField (..), defaultField,
+  module Data.Default.Class, DefaultField (..), defaultField,
   
   -- * Field convention
   FieldC (..), FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA,

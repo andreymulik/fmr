@@ -18,6 +18,9 @@
 -}
 module Data.Property
 (
+  -- * Export
+  module Data.Field.Object,
+  
   -- * Generalized properties
   Prop ( .., Prop ), IsProp (..), PropertyKind, CastableProp,
   
@@ -25,10 +28,8 @@ module Data.Property
   IsField (..), FieldC (..),
   
   -- * Basic accessors
-  FieldGet,     FieldGetA,     GetterFor,    getRecord,     get,
-  FieldSet,     FieldSetA,     SetterFor,    setRecord,     set,
-  FieldModify,  FieldModifyA,  ModifierFor,  modifyRecord,
-  FieldModifyM, FieldModifyMA, ModifierMFor, modifyRecordM,
+  FieldGet,  getRecord, get, FieldSet,    setRecord, set,
+  FieldModify, modifyRecord, FieldModifyM, modifyRecordM,
   
   -- * Basic properties
   
@@ -41,7 +42,6 @@ module Data.Property
   -- ** Modify properties
   pattern (:~), pattern (::~), pattern (:~$), pattern (::~$),
   
-  -- ** Monadic modify properties
   pattern (:<~), pattern (:~<), pattern (:<~$), pattern (:~<$),
   
   -- * Field operations
