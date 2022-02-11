@@ -541,7 +541,7 @@ x -= y = Property (ModifyProp [x] (subtract y))
      => field -> e -> Prop m field record
 x *= y = Property (ModifyProp [x] (* y))
 
--- Apply @('<>')@ to the current value of the field and the passed argument
+-- | Apply @('<>')@ to the current value of the field and the passed argument.
 (<>=) :: (FieldModify field m record e, Monad m, Semigroup e)
      => field -> e -> Prop m field record
 x <>= y = Property (ModifyProp [x] (<> y))

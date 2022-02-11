@@ -90,6 +90,7 @@ instance Default (DefaultField field c '[])
   where
     def = DefaultField def
 
+-- | Newtype wrapper for @(field -> 'FObject' c as)@ functions.
 newtype DefaultField field c as = DefaultField
   {fromDefaultField :: field -> FObject c as}
 
@@ -100,6 +101,10 @@ instance
   where
     def = DefaultField (\ field -> fromField field :++ fromDefaultField def field)
 
+{- |
+  Convert some field to @'FObject'@.
+  May reduce the variety of available accessors.
+-}
 defaultField :: Default (DefaultField field c as) => field -> FObject c as
 defaultField =  fromDefaultField def
 

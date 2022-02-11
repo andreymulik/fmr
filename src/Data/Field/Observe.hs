@@ -15,7 +15,7 @@ module Data.Field.Observe
   module Data.Property,
   
   -- * Observable field
-  GObserver ( .., Observer, runEvent, notifyBefore, notifyAfter ),
+  GObserver ( .., Observe, runEvent, notifyBefore, notifyAfter ),
   Observer, EventC (..), event', notifyBefore', notifyAfter',
   
   -- ** Observer
@@ -66,7 +66,7 @@ newtype Notifier m (a :: Symbol) = Notify
     notifier :: m ()
   } deriving ( Typeable )
 
--- Create notifier from procedure.
+-- | Create notifier from given procedure.
 notify :: Monad m => m () -> Notifier m a
 notify =  Notify
 
@@ -176,30 +176,30 @@ instance MonadVar m => IsField (Observer FieldC m record e as) (FieldC m record 
 
 --------------------------------------------------------------------------------
 
-{-# COMPLETE Observer #-}
+{-# COMPLETE Observe #-}
 
-pattern Observer :: c ~:= cs => Var m [Notifier m c] -> Var m (event c)
-                             -> Var m [Notifier m c] -> GObserver event field m cs
-pattern Observer{notifyBefore, runEvent, notifyAfter} <-
+pattern Observe :: c ~:= cs => Var m [Notifier m c] -> Var m (event c)
+                            -> Var m [Notifier m c] -> GObserver event field m cs
+pattern Observe{notifyBefore, runEvent, notifyAfter} <-
   GObserver (FObjectElem (ObserverFor _ runEvent notifyBefore notifyAfter))
 
 --------------------------------------------------------------------------------
 
+-- | Returns accessor to event of given 'GObserver'.
 event' :: (MonadVar m, c ~:= cs) => Field m (GObserver event field m cs) (event c)
 event' =  Field
-  (\ (Observer _ e _) -> getField    this e) (\ (Observer _ e _) -> setField     this e)
-  (\ (Observer _ e _) -> modifyField this e) (\ (Observer _ e _) -> modifyFieldM this e)
+  (\ (Observe _ e _) -> getField    this e) (\ (Observe _ e _) -> setField     this e)
+  (\ (Observe _ e _) -> modifyField this e) (\ (Observe _ e _) -> modifyFieldM this e)
 
+-- | Returns accessor to notifiers (before action) of given 'GObserver'.
 notifyBefore' :: (MonadVar m, c ~:= cs) => Field m (GObserver event field m cs) [Notifier m c]
 notifyBefore' =  Field
-  (\ (Observer b _ _) -> getField    this b) (\ (Observer b _ _) -> setField     this b)
-  (\ (Observer b _ _) -> modifyField this b) (\ (Observer b _ _) -> modifyFieldM this b)
+  (\ (Observe b _ _) -> getField    this b) (\ (Observe b _ _) -> setField     this b)
+  (\ (Observe b _ _) -> modifyField this b) (\ (Observe b _ _) -> modifyFieldM this b)
 
+-- | Returns accessor to notifiers (after action) of given 'GObserver'.
 notifyAfter' :: (MonadVar m, c ~:= cs) => Field m (GObserver event field m cs) [Notifier m c]
 notifyAfter' =  Field
-  (\ (Observer _ _ a) -> getField    this a) (\ (Observer _ _ a) -> setField     this a)
-  (\ (Observer _ _ a) -> modifyField this a) (\ (Observer _ _ a) -> modifyFieldM this a)
-
-
-
+  (\ (Observe _ _ a) -> getField    this a) (\ (Observe _ _ a) -> setField     this a)
+  (\ (Observe _ _ a) -> modifyField this a) (\ (Observe _ _ a) -> modifyFieldM this a)
 

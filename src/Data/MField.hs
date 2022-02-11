@@ -124,10 +124,10 @@ newtype instance MFieldC m e FieldModifyA = MFieldModifyA
 -- | Mutable field (pure) modifier.
 type MModifier m e = Var m ((e -> e) -> m e)
 
--- | Mutable field (monadic) modifier.
 newtype instance MFieldC m e FieldModifyMA = MFieldModifyMA
   {mFieldModifyMA :: MModifierM m e}
 
+-- | Mutable field (monadic) modifier.
 type MModifierM m e = Var m ((e -> m e) -> m e)
 
 --------------------------------------------------------------------------------
@@ -235,10 +235,13 @@ modifierM (GMField f) = Field (getRecord     this <=< modifyMRef.f)
 
 --------------------------------------------------------------------------------
 
-(=:) :: (Typeable m, Typeable record, Typeable e, Typeable as, MonadVar m)
-     => GMField m record e as -> record -> GMField m record e as
+{- |
+  @set recordX [fieldX =: fieldY $ recordY]@ makes @fieldX@ in @recordX@ refer
+  to @fieldY@ in @recordY@ (by overriding accessors).
+-}
+(=:) :: MonadVar m => GMField m record e as -> record -> GMField m record e as
      -> Prop m (GMField m record e as) record
-field =: record = Prop . LinkField field record
+field =: record = Property . LinkField field record
 
 data LinkProp m field record
   where
@@ -251,5 +254,7 @@ instance IsProp LinkProp
     performProp record1 (LinkField (GMField field1) record2 (GMField field2)) =
       setRecord this (fromGMFieldRef $ field1 record1) <=<
       getRecord this . fromGMFieldRef $ field2 record2
+
+
 
 
