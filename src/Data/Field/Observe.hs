@@ -1,5 +1,5 @@
-{-# LANGUAGE Safe, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies, TypeOperators, DataKinds, PatternSynonyms #-}
+{-# LANGUAGE Safe, DataKinds, MultiParamTypeClasses, FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies, TypeOperators, PatternSynonyms #-}
 
 {- |
     License     :  BSD-style

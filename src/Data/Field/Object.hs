@@ -1,7 +1,7 @@
-{-# LANGUAGE GADTs, TypeOperators, TypeFamilies, PatternSynonyms, ViewPatterns #-}
 {-# LANGUAGE Trustworthy, MultiParamTypeClasses, FunctionalDependencies #-}
+{-# LANGUAGE TypeOperators, TypeFamilies, PatternSynonyms, ViewPatterns #-}
 {-# LANGUAGE UndecidableInstances, FlexibleInstances, FlexibleContexts #-}
-{-# LANGUAGE ConstraintKinds, DataKinds #-}
+{-# LANGUAGE GADTs, ConstraintKinds, DataKinds #-}
 
 {- |
     License     :  BSD-style

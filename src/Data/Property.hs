@@ -1,7 +1,6 @@
-{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
-{-# LANGUAGE CPP, GADTs, PatternSynonyms, ViewPatterns, FlexibleContexts #-}
-{-# LANGUAGE Safe, ConstraintKinds, DataKinds, RankNTypes, TypeOperators #-}
-{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleContexts #-}
+{-# LANGUAGE Safe, CPP, GADTs, TypeOperators, PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, RankNTypes, KindSignatures #-}
 
 -- For [ghc-8.0 .. ghc-8.4) support.
 #if __GLASGOW_HASKELL__ < 840
@@ -52,6 +51,10 @@ where
 import Data.Field.Object
 import Data.Typeable
 import Data.Kind
+
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
 
 import Control.Monad
 
@@ -567,4 +570,6 @@ fieldQuot x y = Property (ModifyProp [x] (`quot` y))
 fieldRem :: (FieldModify field m record e, Monad m, Integral e)
          => field -> e -> Prop m field record
 fieldRem x y = Property (ModifyProp [x] (`rem` y))
+
+
 

@@ -1,6 +1,5 @@
-{-# LANGUAGE Safe, GADTs, MultiParamTypeClasses, FunctionalDependencies #-}
-{-# LANGUAGE PatternSynonyms, TypeFamilies, TypeOperators, DataKinds #-}
-{-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
+{-# LANGUAGE GADTs, TypeOperators, DataKinds, FlexibleContexts, FlexibleInstances #-}
+{-# LANGUAGE Safe, TypeFamilies, MultiParamTypeClasses, FunctionalDependencies #-}
 
 {- |
     License     :  BSD-style
@@ -252,4 +251,5 @@ instance IsProp LinkProp
     performProp record1 (LinkField (GMField field1) record2 (GMField field2)) =
       setRecord this (fromGMFieldRef $ field1 record1) <=<
       getRecord this . fromGMFieldRef $ field2 record2
+
 
