@@ -1,7 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
+{-# LANGUAGE UndecidableSuperClasses, UndecidableInstances, FlexibleContexts #-}
 {-# LANGUAGE Trustworthy, PatternSynonyms, ViewPatterns, DefaultSignatures #-}
-{-# LANGUAGE UndecidableSuperClasses, FlexibleContexts, TypeOperators #-}
-{-# LANGUAGE TypeFamilies, DataKinds #-}
+{-# LANGUAGE TypeFamilies, TypeOperators, DataKinds #-}
 
 {- |
     License     :  BSD-style
@@ -17,8 +17,8 @@ module Data.Field
   module Data.Property,
   
   -- * Field
-  FObject ( Field, getField, setField, modifyField, modifyFieldM ),
-  Field, GField, DField, DMField, sfield,
+  GField ( .., SField, Field, getField, setField, modifyField, modifyFieldM ),
+  FieldA, Field, sfield,
   
   -- * IsMVar and MonadVar
   IsMVar (..), MonadVar (..)
@@ -26,6 +26,7 @@ module Data.Field
 where
 
 import Data.Field.Object
+import Data.Typeable
 import Data.Property
 import Data.IORef
 import Data.STRef
@@ -41,44 +42,55 @@ default ()
 --------------------------------------------------------------------------------
 
 -- | Normal field, which contain getter, setter and modifiers (pure and monadic).
-type Field m record e = GField m record e [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
+type Field = GField FieldA FieldC
 
 {- |
   @since 0.3
   
   Generalized field with 'FieldC' convention.
 -}
-type GField m record e = FObject (FieldC m record e)
+newtype GField as fieldC (m :: Type -> Type) record e = GField
+  {
+    fromGField :: FObject as (fieldC m record e)
+  } deriving ( Typeable )
 
-{- |
-  @since 0.3
-  
-  Dummy field type, pure accessor to variable.
--}
-type DField var record e = record -> var e
-
-{- |
-  @since 0.3
-  
-  Dummy field type, monadic accessor to variable.
--}
-type DMField m var record e = record -> m (var e)
+-- | Default list of accessors.
+type FieldA = [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
 
 --------------------------------------------------------------------------------
 
 {-# COMPLETE Field #-}
 
+-- | Create Field from getter, setter and modifiers.
 pattern Field :: GetterFor   m record e -> SetterFor    m record e
               -> ModifierFor m record e -> ModifierMFor m record e
               -> Field m record e
 pattern Field{getField, setField, modifyField, modifyFieldM} <-
     (
-      (\ f -> (getRecord f, setRecord f, modifyRecord f, modifyRecordM f)) ->
-      (getField, setField, modifyField, modifyFieldM)
+      (\ (GField f) -> (getRecord f, setRecord f, modifyRecord f, modifyRecordM f))
+                    -> (getField, setField, modifyField, modifyFieldM)
     )
   where
-    Field g s m mm = FieldGetA      g :++ FieldSetA  s :++ FieldModifyA m :++
-                     FieldModifyMA mm :++ FObjectEmpty
+    Field g s m mm = GField
+      (
+        FieldGetA    g :++ FieldSetA      s :++
+        FieldModifyA m :++ FieldModifyMA mm :++ FObjectEmpty
+      )
+
+{- |
+  @since 0.3
+  
+  Good old pattern from @fmr-0.1@, simplified version of 'Field'.
+-}
+pattern SField :: Monad m => GetterFor m record e -> SetterFor m record e -> Field m record e
+pattern SField g s <- ((\ (GField f) -> (getRecord f, setRecord f)) -> (g, s))
+  where
+    SField = sfield
+
+instance IsField (FObject as (f m record e)) c a
+      => IsField  (GField as  f m record e)  c a
+  where
+    fromField = fromField.fromGField
 
 -- | 'sfield' creates new field from given getter and setter.
 sfield :: Monad m => GetterFor m record e -> SetterFor m record e -> Field m record e
@@ -103,22 +115,19 @@ class MonadVar m => IsMVar m var | var -> m
     -- | 'subfield' is common variable access field.
     default subfield :: Default
       (
-        DefaultField (DField var record e) (FieldC m record e)
-          [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
-      ) => DField var record e -> Field m record e
+        DefaultField (SubField var record e) (FieldC m record e) FieldA
+      ) => SubField var record e -> Field m record e
     
-    subfield :: DField var record e -> Field m record e
-    subfield =  defaultField
+    subfield :: SubField var record e -> Field m record e
+    subfield =  GField . defaultField
     
     -- | 'subfieldM' is mutable field variable accessor.
     default subfieldM :: Default
-      (
-        DefaultField (DMField m var record e) (FieldC m record e)
-          [FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA]
-      ) => DMField m var record e -> Field m record e
+      (DefaultField (SubFieldM m var record e) (FieldC m record e) FieldA) =>
+      SubFieldM m var record e -> Field m record e
     
-    subfieldM :: DMField m var record e -> Field m record e
-    subfieldM =  defaultField
+    subfieldM :: SubFieldM m var record e -> Field m record e
+    subfieldM =  GField . defaultField
     
     -- | Create and initialize new mutable variable.
     var :: e -> m (var e)
@@ -146,5 +155,6 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
+
 
 

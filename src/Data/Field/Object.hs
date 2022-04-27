@@ -18,7 +18,9 @@ module Data.Field.Object
   type (~:=), type (~<=), type (~</=),
   
   -- ** Default field
-  module Data.Default.Class, DefaultField (..), defaultField,
+  module Data.Default.Class,
+  
+  DefaultField (..), defaultField, SubField, SubFieldM,
   
   -- * Field convention
   FieldC (..), FieldGetA, FieldSetA, FieldModifyA, FieldModifyMA,
@@ -27,6 +29,7 @@ module Data.Field.Object
 where
 
 import Data.Default.Class
+import Data.Typeable
 import Data.IORef
 import Data.STRef
 import Data.Kind
@@ -45,20 +48,30 @@ infixr 6 :++
 --------------------------------------------------------------------------------
 
 {- |
+  @since 0.3
+  
   @'FObject' c as@ is generalized field representation, where @c@ is convention
   type operation (usually, type family), @as@ - list of stored (supported)
   accessors.
 -}
-data FObject c (as :: [Symbol])
+data FObject (as :: [Symbol]) c
   where
-    FObjectEmpty :: FObject c '[]
-    (:++)        :: a ~</= as => c a -> FObject c as -> FObject c (a : as)
+    FObjectEmpty :: FObject '[] c
+    (:++)        :: a ~</= as => c a -> FObject as c -> FObject (a : as) c
 
 {-# COMPLETE FObjectElem #-}
 
 -- | Extract accessor from field, completely useless in older GHC (too generic).
-pattern FObjectElem :: a ~:= as => c a -> FObject c as
+pattern FObjectElem :: a ~:= as => c a -> FObject as c
 pattern FObjectElem x <- (getFObject -> x)
+
+--------------------------------------------------------------------------------
+
+-- | Subfield type - pure accessor to record variable.
+type SubField var record e = record -> var e
+
+-- | Subfield type - monadic accessor to variable.
+type SubFieldM m var record e = record -> m (var e)
 
 --------------------------------------------------------------------------------
 
@@ -70,19 +83,14 @@ pattern FObjectElem x <- (getFObject -> x)
 -}
 class IsField field c (a :: Symbol) | field -> c
   where
-    type a ~?= field :: Constraint
-    type a ~?= field =  'True ~ 'True
-    
     -- Get accessor from generalized field.
-    fromField :: a ~?= field => field -> c a
+    fromField :: field -> c a
 
-instance IsField (FObject c as) c a
+instance a ~:= as => IsField (FObject as c) c a
   where
-    type a ~?= FObject c as = a ~:= as
-    
     fromField = getFObject
 
-instance Default (FObject c '[])
+instance Default (FObject '[] c)
   where
     def = FObjectEmpty
 
@@ -92,11 +100,13 @@ instance Default (DefaultField field c '[])
 
 -- | Newtype wrapper for @(field -> 'FObject' c as)@ functions.
 newtype DefaultField field c as = DefaultField
-  {fromDefaultField :: field -> FObject c as}
+  {
+    fromDefaultField :: field -> FObject as c
+  } deriving ( Typeable )
 
 instance
     (
-      a ~</= as, a ~?= field, IsField field c a, Default (DefaultField field c as)
+      a ~</= as, IsField field c a, Default (DefaultField field c as)
     ) => Default (DefaultField field c (a : as))
   where
     def = DefaultField (\ field -> fromField field :++ fromDefaultField def field)
@@ -105,49 +115,49 @@ instance
   Convert some field to @'FObject'@.
   May reduce the variety of available accessors.
 -}
-defaultField :: Default (DefaultField field c as) => field -> FObject c as
+defaultField :: Default (DefaultField field c as) => field -> FObject as c
 defaultField =  fromDefaultField def
 
 --------------------------------------------------------------------------------
 
 {- STRef instances. -}
 
-instance IsField (record -> STRef s e) (FieldC (ST s) record e) FieldGetA
+instance IsField (SubField (STRef s) record e) (FieldC (ST s) record e) FieldGetA
   where
     fromField field = FieldGetA (readSTRef.field)
 
-instance IsField (record -> STRef s e) (FieldC (ST s) record e) FieldSetA
+instance IsField (SubField (STRef s) record e) (FieldC (ST s) record e) FieldSetA
   where
     fromField field = FieldSetA (writeSTRef.field)
 
-instance IsField (record -> STRef s e) (FieldC (ST s) record e) FieldModifyA
+instance IsField (SubField (STRef s) record e) (FieldC (ST s) record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f -> let ref = field record in do
       res <- f <$> readSTRef ref
       res <$ writeSTRef ref res
 
-instance IsField (record -> STRef s e) (FieldC (ST s) record e) FieldModifyMA
+instance IsField (SubField (STRef s) record e) (FieldC (ST s) record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> let ref = field record in do
       res <- f =<< readSTRef ref
       res <$ writeSTRef ref res
 
-instance IsField (record -> ST s (STRef s e)) (FieldC (ST s) record e) FieldGetA
+instance IsField (SubFieldM (ST s) (STRef s) record e) (FieldC (ST s) record e) FieldGetA
   where
     fromField field = FieldGetA (readSTRef <=< field)
 
-instance IsField (record -> ST s (STRef s e)) (FieldC (ST s) record e) FieldSetA
+instance IsField (SubFieldM (ST s) (STRef s) record e) (FieldC (ST s) record e) FieldSetA
   where
     fromField field = FieldSetA (writeSTRef <<=< field)
 
-instance IsField (record -> ST s (STRef s e)) (FieldC (ST s) record e) FieldModifyA
+instance IsField (SubFieldM (ST s) (STRef s) record e) (FieldC (ST s) record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f -> do
       ref <- field record
       res <- f <$> readSTRef ref
       res <$ writeSTRef ref res
 
-instance IsField (record -> ST s (STRef s e)) (FieldC (ST s) record e) FieldModifyMA
+instance IsField (SubFieldM (ST s) (STRef s) record e) (FieldC (ST s) record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> do
       ref <- field record
@@ -158,40 +168,40 @@ instance IsField (record -> ST s (STRef s e)) (FieldC (ST s) record e) FieldModi
 
 {- IORef instances. -}
 
-instance IsField (record -> IORef e) (FieldC IO record e) FieldGetA
+instance IsField (SubField IORef record e) (FieldC IO record e) FieldGetA
   where
     fromField field = FieldGetA (readIORef.field)
 
-instance IsField (record -> IORef e) (FieldC IO record e) FieldSetA
+instance IsField (SubField IORef record e) (FieldC IO record e) FieldSetA
   where
     fromField field = FieldSetA (writeIORef.field)
 
-instance IsField (record -> IORef e) (FieldC IO record e) FieldModifyA
+instance IsField (SubField IORef record e) (FieldC IO record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f ->
       field record `atomicModifyIORef'` \ a -> let b = f a in (b, b)
 
-instance IsField (record -> IORef e) (FieldC IO record e) FieldModifyMA
+instance IsField (SubField IORef record e) (FieldC IO record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> let ref = field record in do
       val <- f =<< readIORef ref
       val <$ writeIORef ref val
 
-instance IsField (record -> IO (IORef e)) (FieldC IO record e) FieldGetA
+instance IsField (SubFieldM IO IORef record e) (FieldC IO record e) FieldGetA
   where
     fromField field = FieldGetA (readIORef <=< field)
 
-instance IsField (record -> IO (IORef e)) (FieldC IO record e) FieldSetA
+instance IsField (SubFieldM IO IORef record e) (FieldC IO record e) FieldSetA
   where
     fromField field = FieldSetA (writeIORef <<=< field)
 
-instance IsField (record -> IO (IORef e)) (FieldC IO record e) FieldModifyA
+instance IsField (SubFieldM IO IORef record e) (FieldC IO record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f -> do
       ref <- field record
       ref `atomicModifyIORef'` \ a -> let b = f a in (b, b)
 
-instance IsField (record -> IO (IORef e)) (FieldC IO record e) FieldModifyMA
+instance IsField (SubFieldM IO IORef record e) (FieldC IO record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> do
       ref <- field record
@@ -202,39 +212,39 @@ instance IsField (record -> IO (IORef e)) (FieldC IO record e) FieldModifyMA
 
 {- MVar instances. -}
 
-instance IsField (record -> MVar e) (FieldC IO record e) FieldGetA
+instance IsField (SubField MVar record e) (FieldC IO record e) FieldGetA
   where
     fromField field = FieldGetA (readMVar.field)
 
-instance IsField (record -> MVar e) (FieldC IO record e) FieldSetA
+instance IsField (SubField MVar record e) (FieldC IO record e) FieldSetA
   where
     fromField field = FieldSetA (putMVar.field)
 
-instance IsField (record -> MVar e) (FieldC IO record e) FieldModifyA
+instance IsField (SubField MVar record e) (FieldC IO record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f ->
       field record `modifyMVar` \ a -> let b = f a in return (b, b)
 
-instance IsField (record -> MVar e) (FieldC IO record e) FieldModifyMA
+instance IsField (SubField MVar record e) (FieldC IO record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f ->
       field record `modifyMVarMasked` \ a -> do b <- f a; return (b, b)
 
-instance IsField (record -> IO (MVar e)) (FieldC IO record e) FieldGetA
+instance IsField (SubFieldM IO MVar record e) (FieldC IO record e) FieldGetA
   where
     fromField field = FieldGetA (readMVar <=< field)
 
-instance IsField (record -> IO (MVar e)) (FieldC IO record e) FieldSetA
+instance IsField (SubFieldM IO MVar record e) (FieldC IO record e) FieldSetA
   where
     fromField field = FieldSetA (putMVar <<=< field)
 
-instance IsField (record -> IO (MVar e)) (FieldC IO record e) FieldModifyA
+instance IsField (SubFieldM IO MVar record e) (FieldC IO record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f -> do
       mvar <- field record
       mvar `modifyMVar` \ a -> let b = f a in return (b, b)
 
-instance IsField (record -> IO (MVar e)) (FieldC IO record e) FieldModifyMA
+instance IsField (SubFieldM IO MVar record e) (FieldC IO record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> do
       mvar <- field record
@@ -244,42 +254,42 @@ instance IsField (record -> IO (MVar e)) (FieldC IO record e) FieldModifyMA
 
 {- TVar instances. -}
 
-instance IsField (record -> TVar e) (FieldC STM record e) FieldGetA
+instance IsField (SubField TVar record e) (FieldC STM record e) FieldGetA
   where
-    fromField field = FieldGetA (readTVar.field)
+    fromField = FieldGetA . (readTVar.)
 
-instance IsField (record -> TVar e) (FieldC STM record e) FieldSetA
+instance IsField (SubField TVar record e) (FieldC STM record e) FieldSetA
   where
-    fromField field = FieldSetA (writeTVar.field)
+    fromField = FieldSetA . (writeTVar.)
 
-instance IsField (record -> TVar e) (FieldC STM record e) FieldModifyA
+instance IsField (SubField TVar record e) (FieldC STM record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f -> let tvar = field record in do
       res <- f <$> readTVar tvar
       res <$ writeTVar tvar res
 
-instance IsField (record -> TVar e) (FieldC STM record e) FieldModifyMA
+instance IsField (SubField TVar record e) (FieldC STM record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> let tvar = field record in do
       res <- f =<< readTVar tvar
       res <$ writeTVar tvar res
 
-instance IsField (record -> STM (TVar e)) (FieldC STM record e) FieldGetA
+instance IsField (SubFieldM STM TVar record e) (FieldC STM record e) FieldGetA
   where
-    fromField field = FieldGetA (readTVar <=< field)
+    fromField = FieldGetA . (readTVar <=<)
 
-instance IsField (record -> STM (TVar e)) (FieldC STM record e) FieldSetA
+instance IsField (SubFieldM STM TVar record e) (FieldC STM record e) FieldSetA
   where
-    fromField field = FieldSetA (writeTVar <<=< field)
+    fromField = FieldSetA . (writeTVar <<=<)
 
-instance IsField (record -> STM (TVar e)) (FieldC STM record e) FieldModifyA
+instance IsField (SubFieldM STM TVar record e) (FieldC STM record e) FieldModifyA
   where
     fromField field = FieldModifyA $ \ record f -> do
       tvar <- field record
       res  <- f <$> readTVar tvar
       res  <$ writeTVar tvar res
 
-instance IsField (record -> STM (TVar e)) (FieldC STM record e) FieldModifyMA
+instance IsField (SubFieldM STM TVar record e) (FieldC STM record e) FieldModifyMA
   where
     fromField field = FieldModifyMA $ \ record f -> do
       tvar <- field record
@@ -307,7 +317,9 @@ data family FieldC (m :: Type -> Type) record e (c :: Symbol) :: Type
 
 -- | Common get accessor.
 newtype instance FieldC m record e FieldGetA = FieldGetA
-  {fieldGetA :: GetterFor m record e}
+  {
+    fieldGetA :: GetterFor m record e
+  } deriving ( Typeable )
 
 -- | Common get accessor convention.
 type FieldGetA = "fmr.field.get"
@@ -319,7 +331,9 @@ type GetterFor m record e = record -> m e
 
 -- | Common set accessor.
 newtype instance FieldC m record e FieldSetA = FieldSetA
-  {fieldSetA :: SetterFor m record e}
+  {
+    fieldSetA :: SetterFor m record e
+  } deriving ( Typeable )
 
 -- | Common set accessor convention.
 type FieldSetA = "fmr.field.set"
@@ -331,7 +345,9 @@ type SetterFor m record e = record -> e -> m ()
 
 -- | Common modify accessor.
 newtype instance FieldC m record e FieldModifyA = FieldModifyA
-  {fieldModifyA :: ModifierFor m record e}
+  {
+    fieldModifyA :: ModifierFor m record e
+  } deriving ( Typeable )
 
 -- | Common modify accessor convention.
 type FieldModifyA = "fmr.field.modify"
@@ -343,7 +359,9 @@ type ModifierFor m record e = record -> (e -> e) -> m e
 
 -- | Common monadic modify accessor.
 newtype instance FieldC m record e FieldModifyMA = FieldModifyMA
-  {fieldModifyMA :: ModifierMFor m record e}
+  {
+    fieldModifyMA :: ModifierMFor m record e
+  } deriving ( Typeable )
 
 -- | Common monadic modify accessor convention.
 type FieldModifyMA = "fmr.field.modifyM"
@@ -374,7 +392,7 @@ type c ~</= cs = FObjectElem c cs ~ 'False
 -- | Closed class of generalized field accessor getters.
 class a ~<= as => a ~:= as
   where
-    getFObject :: FObject c as -> c a
+    getFObject :: FObject as c -> c a
 
 instance {-# INCOHERENT #-} a ~:= (a : as) where getFObject (a :++ _) = a
 
@@ -387,4 +405,6 @@ instance {-# INCOHERENT #-} (a ~<= (a' : as), a ~:= as) => a ~:= (a' : as)
 -- | Monadic version of @('...')@.
 (<<=<) :: Monad m => (c -> b -> m d) -> (a -> m c) -> a -> b -> m d
 (<<=<) =  \ f g x y -> do x' <- g x; f x' y
+
+
 

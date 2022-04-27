@@ -1,5 +1,6 @@
-{-# LANGUAGE Safe, DataKinds, MultiParamTypeClasses, FlexibleInstances #-}
-{-# LANGUAGE TypeFamilies, TypeOperators, PatternSynonyms #-}
+{-# LANGUAGE MultiParamTypeClasses,FunctionalDependencies, FlexibleInstances #-}
+{-# LANGUAGE UndecidableSuperClasses, UndecidableInstances, FlexibleContexts #-}
+{-# LANGUAGE Safe, DataKinds, TypeFamilies, TypeOperators, PatternSynonyms #-}
 
 {- |
     License     :  BSD-style
@@ -14,74 +15,200 @@ module Data.Field.Observe
   -- * Exports
   module Data.Property,
   
-  -- * Observable field
-  GObserver ( .., Observe, runEvent, notifyBefore, notifyAfter ),
-  Observer, EventC (..), event', notifyBefore', notifyAfter',
+  -- * Observe convention
+  Observe (..),
   
-  -- ** Observer
-  ObserverFor (..),
+  -- ** Observable fields
+  MFieldObserverC (..), OGMField, OMField,
+  FieldObserverC  (..), OGField,  OField,
+  
+  -- ** Event
+  FieldEvent (..), EventC (..), getEvent, setEvent, modifyEvent, modifyMEvent,
   
   -- ** Notifier
-  Notifier, notify, notifier
+  FieldNotify (..), Notifier (..)
 )
 where
 
 import Data.Field.Object
 import Data.Property
-import Data.Field
+import Data.MField
 
 import Data.Typeable
 import Data.Kind
 
 import GHC.TypeLits
 
+import Control.Monad
+
 default ()
 
 --------------------------------------------------------------------------------
 
--- | 'ObserverFor' contains an accessor, an event, and notifiers.
-data ObserverFor event field m (c :: Symbol) = ObserverFor
-    !(field c)              -- action
-    !(Var m (event      c)) -- event, runs after action
-    !(Var m [Notifier m c]) -- notifications before action
-    !(Var m [Notifier m c]) -- notifications after event
-  deriving ( Typeable )
+{- |
+  @'Observe' m field@ is derivative convention, which use 'field' convention
+  (e.g. 'FieldC') for accessor representation and 'EventC'-based
+  conventions for representation of events.
+-}
+data Observe m field (a :: Symbol) = Observe
+  {
+    observeField  :: !(field a),
+    observeEvent  :: !(EventC field a),
+    observeAfter  :: !(Var m [Notifier m a]),
+    observeBefore :: !(Var m [Notifier m a])
+  } deriving ( Typeable )
 
 {- |
-  'GObserver' is a generic field containing accessors with notifiers and generic
-  events.
+  'EventC' is a convention that defines event types for 'FieldC'.
+  You can also use it with your own accessors and conventions.
 -}
-newtype GObserver event field m cs = GObserver
-  {fromGObserve :: FObject (ObserverFor event field m) cs}
+data family EventC (for :: Symbol -> Type) (a :: Symbol) :: Type
 
--- | An 'Observer' is an 'GObserver' with events defined in 'EventC' type family.
-type Observer field m record e = GObserver (EventC m record e) (field m record e) m
-
---------------------------------------------------------------------------------
-
--- | Notifier type.
+-- | Accessor-specific notifier type.
 newtype Notifier m (a :: Symbol) = Notify
   {
     -- | Get notifier procedure.
     notifier :: m ()
   } deriving ( Typeable )
 
--- | Create notifier from given procedure.
-notify :: Monad m => m () -> Notifier m a
-notify =  Notify
+--------------------------------------------------------------------------------
+
+-- | 'FieldC'-based convention.
+newtype FieldObserverC m record e a = FieldObserverC
+  {
+    fromFieldObserverC :: Observe m (FieldC m record e) a
+  } deriving ( Typeable )
+
+-- | Observable 'GField'.
+type OGField as = GField as FieldObserverC
+
+-- | Observable 'Field'.
+type OField = OGField FieldA
+
+instance (MonadVar m, FieldGetA ~:= as) => IsField (OGField as m record e)
+                                            (FieldC m record e) FieldGetA
+  where
+    fromField (GField f) = FieldGetA $ \ record -> do
+      let FieldObserverC (Observe g e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      val <- fieldGetA g record
+      fieldGetE e record val
+      
+      mapM_ notifier =<< get this a
+      return val
+
+instance (MonadVar m, FieldSetA ~:= as) => IsField (OGField as m record e)
+                                            (FieldC m record e) FieldSetA
+  where
+    fromField (GField f) = FieldSetA $ \ record val -> do
+      let FieldObserverC (Observe s e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      fieldSetA s record val
+      fieldSetE e record val
+      
+      mapM_ notifier =<< get this a
+
+instance (MonadVar m, FieldModifyA ~:= as) => IsField (OGField as m record e)
+                                            (FieldC m record e) FieldModifyA
+  where
+    fromField (GField f) = FieldModifyA $ \ record upd -> do
+      let FieldObserverC (Observe m e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      val <- fieldModifyA m record upd
+      fieldModifyE e record val
+      
+      mapM_ notifier =<< get this a
+      return val
+
+instance (MonadVar m, FieldModifyMA ~:= as) => IsField (OGField as m record e)
+                                            (FieldC m record e) FieldModifyMA
+  where
+    fromField (GField f) = FieldModifyMA $ \ record go -> do
+      let FieldObserverC (Observe mm e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      val <- fieldModifyMA mm record go
+      fieldModifyME e record val
+      
+      mapM_ notifier =<< get this a
+      return val
 
 --------------------------------------------------------------------------------
 
-{- |
-  'EventC' is a convention that defines event types for 'FieldC'.
-  You can also use it with your own accessors and conventions.
--}
-data family EventC (m :: Type -> Type) record e (a :: Symbol) :: Type
+-- | 'MFieldC'-based convention.
+newtype MFieldObserverC m e a = MFieldObserverC
+  {
+    fromMFieldObserverC :: Observe m (MFieldC m e) a
+  } deriving ( Typeable )
+
+-- | Observable 'GMField'.
+type OGMField as = GMField as MFieldObserverC
+
+-- | Observable 'MField'.
+type OMField = OGMField FieldA
+
+instance (MonadVar m, FieldGetA ~:= as) => IsField (OGMField as m record e)
+                                             (FieldC m record e) FieldGetA
+  where
+    fromField (GMField mref) = FieldGetA $ \ record -> do
+      f <- get this $ fromGMFieldRef (mref record)
+      let MFieldObserverC (Observe g e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      val <- join.get this $ mfieldGetA g
+      mfieldGetE e val
+      
+      mapM_ notifier =<< get this a
+      return val
+
+instance (MonadVar m, FieldSetA ~:= as) => IsField (OGMField as m record e)
+                                             (FieldC m record e) FieldSetA
+  where
+    fromField (GMField mref) = FieldSetA $ \ record val -> do
+      f <- get this $ fromGMFieldRef (mref record)
+      let MFieldObserverC (Observe s e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      ($ val) =<< get this (mfieldSetA s)
+      mfieldSetE e val
+      
+      mapM_ notifier =<< get this a
+
+instance (MonadVar m, FieldModifyA ~:= as) => IsField (OGMField as m record e)
+                                             (FieldC m record e) FieldModifyA
+  where
+    fromField (GMField mref) = FieldModifyA $ \ record upd -> do
+      f <- get this $ fromGMFieldRef (mref record)
+      let MFieldObserverC (Observe m e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      val <- ($ upd) =<< get this (mfieldModifyA m)
+      mfieldModifyE e val
+      
+      mapM_ notifier =<< get this a
+      return val
+
+instance (MonadVar m, FieldModifyMA ~:= as) => IsField (OGMField as m record e)
+                                             (FieldC m record e) FieldModifyMA
+  where
+    fromField (GMField mref) = FieldModifyMA $ \ record go -> do
+      f <- get this $ fromGMFieldRef (mref record)
+      let MFieldObserverC (Observe mm e a b) = fromField f
+      mapM_ notifier =<< get this b
+      
+      val <- ($ go) =<< get this (mfieldModifyMA mm)
+      mfieldModifyME e val
+      
+      mapM_ notifier =<< get this a
+      return val
 
 --------------------------------------------------------------------------------
 
 -- | Common get accessor event.
-newtype instance EventC m record e FieldGetA =
+newtype instance EventC (FieldC m record e) FieldGetA =
     FieldGetE {fieldGetE :: EventGet m record e}
   deriving ( Typeable )
 
@@ -89,7 +216,7 @@ newtype instance EventC m record e FieldGetA =
 type EventGet m record e = record -> e -> m ()
 
 -- | Common set accessor event.
-newtype instance EventC m record e FieldSetA =
+newtype instance EventC (FieldC m record e) FieldSetA =
     FieldSetE {fieldSetE :: EventSet m record e}
   deriving ( Typeable )
 
@@ -97,7 +224,7 @@ newtype instance EventC m record e FieldSetA =
 type EventSet m record e = record -> e -> m ()
 
 -- | Common modify accessor event.
-newtype instance EventC m record e FieldModifyA =
+newtype instance EventC (FieldC m record e) FieldModifyA =
     FieldModifyE {fieldModifyE :: EventModify m record e}
   deriving ( Typeable )
 
@@ -105,8 +232,8 @@ newtype instance EventC m record e FieldModifyA =
 type EventModify m record e = record -> e -> m ()
 
 -- | Common monadic modify accessor event.
-newtype instance EventC m record e FieldModifyMA =
-    FieldModifyMC {fieldModifyME :: EventModifyM m record e}
+newtype instance EventC (FieldC m record e) FieldModifyMA =
+    FieldModifyME {fieldModifyME :: EventModifyM m record e}
   deriving ( Typeable )
 
 -- | Common monadic modify accessor event convention.
@@ -114,92 +241,115 @@ type EventModifyM m record e = record -> e -> m ()
 
 --------------------------------------------------------------------------------
 
-instance MonadVar m => IsField (Observer FieldC m record e as) (FieldC m record e) FieldGetA
-  where
-    type FieldGetA ~?= Observer FieldC m record e as = FieldGetA ~:= as
-    
-    fromField (GObserver f) = FieldGetA $ \ record -> do
-      let ObserverFor g e b a = fromField f
-      mapM_ notifier =<< get this b
-      
-      evt <- fieldGetE <$> get this e
-      val <- fieldGetA g record
-      evt record val
-      
-      mapM_ notifier =<< get this a
-      return val
+-- | Common get accessor event.
+newtype instance EventC (MFieldC m e) FieldGetA =
+    MFieldGetE {mfieldGetE :: EventMGet m e}
+  deriving ( Typeable )
 
-instance MonadVar m => IsField (Observer FieldC m record e as) (FieldC m record e) FieldSetA
-  where
-    type FieldSetA ~?= Observer FieldC m record e as = FieldSetA ~:= as
-    
-    fromField (GObserver f) = FieldSetA $ \ record val -> do
-      let ObserverFor s e b a = fromField f
-      mapM_ notifier =<< get this b
-      
-      fieldSetA s record val
-      
-      evt <- fieldSetE <$> get this e
-      evt record val
-      
-      mapM_ notifier =<< get this a
+-- | Common get accessor event convention.
+type EventMGet m e = e -> m ()
 
-instance MonadVar m => IsField (Observer FieldC m record e as) (FieldC m record e) FieldModifyA
-  where
-    type FieldModifyA ~?= Observer FieldC m record e as = FieldModifyA ~:= as
-    
-    fromField (GObserver f) = FieldModifyA $ \ record f' -> do
-        let ObserverFor m e b a = fromField f
-        mapM_ notifier =<< get this b
-        
-        evt <- fieldModifyE <$> get this e
-        val <- fieldModifyA m record f'
-        evt record val
-        
-        mapM_ notifier =<< get this a
-        return val
+-- | Common set accessor event.
+newtype instance EventC (MFieldC m e) FieldSetA =
+    MFieldSetE {mfieldSetE :: EventMSet m e}
+  deriving ( Typeable )
 
-instance MonadVar m => IsField (Observer FieldC m record e as) (FieldC m record e) FieldModifyMA
-  where
-    type FieldModifyMA ~?= Observer FieldC m record e as = FieldModifyMA ~:= as
-    
-    fromField (GObserver f) = FieldModifyMA $ \ record go -> do
-        let ObserverFor mm e b a = fromField f
-        mapM_ notifier =<< get this b
-        
-        evt <- fieldModifyME <$> get this e
-        val <- fieldModifyMA mm record go
-        evt record val
-        
-        mapM_ notifier =<< get this a
-        return val
+-- | Common set accessor event convention.
+type EventMSet m e = e -> m ()
+
+-- | Common modify accessor event.
+newtype instance EventC (MFieldC m e) FieldModifyA =
+    MFieldModifyE {mfieldModifyE :: EventMModify m e}
+  deriving ( Typeable )
+
+-- | Common modify accessor event convention.
+type EventMModify m e = e -> m ()
+
+-- | Common monadic modify accessor event.
+newtype instance EventC (MFieldC m e) FieldModifyMA =
+    MFieldModifyME {mfieldModifyME :: EventMModifyM m e}
+  deriving ( Typeable )
+
+-- | Common monadic modify accessor event convention.
+type EventMModifyM m e = e -> m ()
 
 --------------------------------------------------------------------------------
 
-{-# COMPLETE Observe #-}
+-- | Class of fields with public events.
+class IsField field c a => FieldEvent field c (a :: Symbol) | field -> c
+  where
+    fromEvent :: field -> EventC c a
 
-pattern Observe :: c ~:= cs => Var m [Notifier m c] -> Var m (event c)
-                            -> Var m [Notifier m c] -> GObserver event field m cs
-pattern Observe{notifyBefore, runEvent, notifyAfter} <-
-  GObserver (FObjectElem (ObserverFor _ runEvent notifyBefore notifyAfter))
+instance (IsField (OGField as m record e) (FieldC m record e) a, MonadVar m, a ~:= as)
+    => FieldEvent (OGField as m record e) (FieldC m record e) a
+  where
+    fromEvent = observeEvent.fromFieldObserverC.fromField.fromGField
+
+instance (MonadVar m, FieldGetA ~:= as) => FieldEvent (OGMField as m record e)
+                                                (FieldC m record e) FieldGetA
+  where
+    fromEvent (GMField f) = FieldGetE . flip $ \ val -> get this.fromGMFieldRef.f
+      >=> flip mfieldGetE val.observeEvent.fromMFieldObserverC.fromField
+
+instance (MonadVar m, FieldSetA ~:= as) => FieldEvent (OGMField as m record e)
+                                                (FieldC m record e) FieldSetA
+  where
+    fromEvent (GMField f) = FieldSetE . flip $ \ val -> get this.fromGMFieldRef.f
+      >=> flip mfieldSetE val.observeEvent.fromMFieldObserverC.fromField
+
+instance (MonadVar m, FieldModifyA ~:= as) => FieldEvent (OGMField as m record e)
+                                                (FieldC m record e) FieldModifyA
+  where
+    fromEvent (GMField f) = FieldModifyE . flip $ \ val -> get this.fromGMFieldRef.f
+      >=> flip mfieldModifyE val.observeEvent.fromMFieldObserverC.fromField
+
+instance (MonadVar m, FieldModifyMA ~:= as) => FieldEvent (OGMField as m record e)
+                                                (FieldC m record e) FieldModifyMA
+  where
+    fromEvent (GMField f) = FieldModifyME . flip $ \ val -> get this.fromGMFieldRef.f
+      >=> flip mfieldModifyME val.observeEvent.fromMFieldObserverC.fromField
+
+-- | Get @on-get@ event (in 'FieldC' convention).
+getEvent :: FieldEvent field (FieldC m record e) FieldGetA
+         => field -> record -> e -> m ()
+getEvent =  fieldGetE.fromEvent
+
+-- | Get @on-set@ event (in 'FieldC' convention).
+setEvent :: FieldEvent field (FieldC m record e) FieldSetA
+         => field -> record -> e -> m ()
+setEvent =  fieldSetE.fromEvent
+
+-- | Get @on-modify@ event (in 'FieldC' convention).
+modifyEvent :: FieldEvent field (FieldC m record e) FieldModifyA
+            => field -> record -> e -> m ()
+modifyEvent =  fieldModifyE.fromEvent
+
+-- | Get @on-modiffyM@ event (in 'FieldC' convention).
+modifyMEvent :: FieldEvent field (FieldC m record e) FieldModifyMA
+             => field -> record -> e -> m ()
+modifyMEvent =  fieldModifyME.fromEvent
 
 --------------------------------------------------------------------------------
 
--- | Returns accessor to event of given 'GObserver'.
-event' :: (MonadVar m, c ~:= cs) => Field m (GObserver event field m cs) (event c)
-event' =  Field
-  (\ (Observe _ e _) -> getField    this e) (\ (Observe _ e _) -> setField     this e)
-  (\ (Observe _ e _) -> modifyField this e) (\ (Observe _ e _) -> modifyFieldM this e)
+-- | Class of fields with public notifiers.
+class FieldNotify field a
+  where
+    notifyBefore :: MonadVar m => field m record e -> Field m record [Notifier m a]
+    notifyAfter  :: MonadVar m => field m record e -> Field m record [Notifier m a]
 
--- | Returns accessor to notifiers (before action) of given 'GObserver'.
-notifyBefore' :: (MonadVar m, c ~:= cs) => Field m (GObserver event field m cs) [Notifier m c]
-notifyBefore' =  Field
-  (\ (Observe b _ _) -> getField    this b) (\ (Observe b _ _) -> setField     this b)
-  (\ (Observe b _ _) -> modifyField this b) (\ (Observe b _ _) -> modifyFieldM this b)
+instance a ~:= as => FieldNotify (OGField as) a
+  where
+    notifyBefore = subfield.const.observeBefore.fromFieldObserverC.fromField.fromGField
+    notifyAfter  = subfield.const.observeAfter.fromFieldObserverC.fromField.fromGField
 
--- | Returns accessor to notifiers (after action) of given 'GObserver'.
-notifyAfter' :: (MonadVar m, c ~:= cs) => Field m (GObserver event field m cs) [Notifier m c]
-notifyAfter' =  Field
-  (\ (Observe _ _ a) -> getField    this a) (\ (Observe _ _ a) -> setField     this a)
-  (\ (Observe _ _ a) -> modifyField this a) (\ (Observe _ _ a) -> modifyFieldM this a)
+instance a ~:= as => FieldNotify (OGMField as) a
+  where
+    notifyBefore f = subfieldM $ fmap (observeBefore.fromMFieldObserverC.fromField)
+                               . get this.fromGMFieldRef.fromGMField f
+    
+    notifyAfter  f = subfieldM $ fmap  (observeAfter.fromMFieldObserverC.fromField)
+                               . get this.fromGMFieldRef.fromGMField f
+
+
+
 
