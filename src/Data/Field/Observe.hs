@@ -88,7 +88,7 @@ type OField = OGField FieldA
 instance (MonadVar m, FieldGetA ~:= as) => IsField (OGField as m record e)
                                             (FieldC m record e) FieldGetA
   where
-    fromField (GField f) = FieldGetA $ \ record -> do
+    fromField f = FieldGetA $ \ record -> do
       let FieldObserverC (Observe g e a b) = fromField f
       mapM_ notifier =<< get this b
       
@@ -339,8 +339,8 @@ class FieldNotify field a
 
 instance a ~:= as => FieldNotify (OGField as) a
   where
-    notifyBefore = subfield.const.observeBefore.fromFieldObserverC.fromField.fromGField
-    notifyAfter  = subfield.const.observeAfter.fromFieldObserverC.fromField.fromGField
+    notifyBefore = subfield.const.observeBefore.fromFieldObserverC.fromField
+    notifyAfter  = subfield.const.observeAfter.fromFieldObserverC.fromField
 
 instance a ~:= as => FieldNotify (OGMField as) a
   where
