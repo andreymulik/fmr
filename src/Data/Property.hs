@@ -31,29 +31,47 @@ module Data.Property
   IsField (..), FieldC (..),
   
   -- * Basic accessors
-  FieldGet,  getRecord, get, FieldSet,    setRecord, set,
-  FieldModify, modifyRecord, FieldModifyM, modifyRecordM,
+  FieldGet,     getRecord,
+  FieldSet,     setRecord,
+  FieldModify,  modifyRecord,
+  FieldModifyM, modifyRecordM,
+  
+  get, set, set', modify, modify',
   
   -- * Basic properties
   
-  -- ** Set properties
+  -- ** Setters
   pattern (:=), pattern (::=), pattern (:=$), pattern (::=$),
   
-  -- ** Monadic set properties
+  -- *** Optional setters
+  pattern (:?=), pattern (::?=), pattern (:=?), pattern (::=?),
+  
+  -- ** Monadic setters
   pattern (:<=), pattern (:=<), pattern (:<=$), pattern (:=<$),
   
-  -- ** Modify properties
+  -- *** Optional monadic setters
+  pattern (:?<=), pattern (:?=<), pattern (:<=?), pattern (:=<?),
+  
+  -- ** Modifiers
   pattern (:~), pattern (::~), pattern (:~$), pattern (::~$),
   
+  -- *** Optional modifiers
+  pattern (:?~), pattern (::?~), pattern (:~?), pattern (::~?),
+  
+  -- ** Monadic modifiers
   pattern (:<~), pattern (:~<), pattern (:<~$), pattern (:~<$),
   
-  -- * Field operations
+  -- *** Optional monadic modifiers
+  pattern (:?<~), pattern (:?~<), pattern (:<~?), pattern (:~<?),
+  
+  -- ** Field operations
   (+=), (-=), (*=), (=/), (<>=), fieldDiv, fieldMod, fieldQuot, fieldRem
 )
 where
 
 import Data.Field.Object
 import Data.Typeable
+import Data.Maybe
 import Data.Kind
 
 #if !MIN_VERSION_base(4,11,0)
@@ -67,6 +85,10 @@ default ()
 infixl 7 *=, =/, `fieldDiv`, `fieldMod`, `fieldQuot`, `fieldRem`
 infixl 6 +=, -=
 infixr 6 <>=
+infixl 0 :=,  ::=, :=$,  ::=$, :?=,  ::?=, :=?,  ::=?,
+         :<=, :=<, :<=$, :=<$, :?<=, :?=<, :<=?, :=<?,
+         :~,  ::~, :~$,  ::~$, :?~,  ::?~, :~?,  ::~?,
+         :<~, :~<, :<~$, :~<$, :?<~, :?~<, :<~?, :~<?
 
 --------------------------------------------------------------------------------
 
@@ -122,6 +144,18 @@ type PropertyKind = (Type -> Type) -> Type -> Type
 set :: Monad m => record -> [Prop m record] -> m ()
 set record = mapM_ $ \ (Property prop) -> performProp record prop
 
+set' :: Monad m => record -> [Prop m record] -> m record
+set' record ps = record <$ set record ps
+
+-- | Get field from record and set some properties to its subfields.
+modify :: (Monad m, IsField field (FieldC m record e) FieldGetA)
+       => field -> record -> [Prop m e] -> m ()
+modify field record ps = (`set` ps) =<< get field record
+
+modify' :: (Monad m, IsField field (FieldC m record e) FieldGetA)
+        => field -> record -> [Prop m e] -> m record
+modify' field record ps = record <$ modify field record ps
+
 --------------------------------------------------------------------------------
 
 {- Setter property. -}
@@ -129,8 +163,7 @@ set record = mapM_ $ \ (Property prop) -> performProp record prop
 {- |
   @since 0.2
   
-  'SetProp is a service type used to set field values. See @(':=')@, @(':=$')@,
-  @('::=')@, @('::=$')@, @(':<=')@, @(':<=$')@, @(':=<')@ and @(':=<$')@ patterns.
+  'SetProp is a service type used to set field values.
 -}
 data SetProp m record
   where
@@ -138,25 +171,46 @@ data SetProp m record
     SetProp :: FieldSet field m record e
             => ![field] -> !e -> SetProp m record
     
-    -- | 'SetPropM' corresponds to @('::=$')@ and @('::=')@.
+    -- | 'SetProp'' corresponds to @(':=?')@ and @(':?=')@.
+    SetProp' :: FieldSet field m record e
+             => ![field] -> !(Maybe e) -> SetProp m record
+    
+    -- | 'SetPropM' corresponds to @('::=?')@ and @('::?=')@.
     SetPropM :: FieldSet field m record e
              => [field] -> !(m e) -> SetProp m record
     
-    -- | 'SetRecordProp' corresponds to @(':<=$')@ and @(':<=')@.
+    -- | 'SetPropM'' corresponds to @('::=?')@ and @('::?=')@.
+    SetPropM' :: FieldSet field m record e
+              => [field] -> !(m (Maybe e)) -> SetProp m record
+    
+    -- | 'SetRecordProp' corresponds to @(':<=$')@ and @(':=<$')@.
     SetRecordProp :: FieldSet field m record e
                   => ![field] -> !(record -> e) -> SetProp m record
     
-    -- | 'SetRecordPropM' corresponds to @(':=<$')@ and @(':=<')@.
+    -- | 'SetRecordProp'' corresponds to @(':<=?')@ and @(':?<=')@.
+    SetRecordProp' :: FieldSet field m record e
+                   => ![field] -> !(record -> Maybe e) -> SetProp m record
+    
+    -- | 'SetRecordPropM' corresponds to @(':=<?')@ and @(':?=<')@.
     SetRecordPropM :: FieldSet field m record e
                    => ![field] -> !(record -> m e) -> SetProp m record
+    
+    -- | 'SetRecordPropM'' corresponds to @(':=<?')@ and @(':?=<')@.
+    SetRecordPropM' :: FieldSet field m record e
+                    => ![field] -> !(record -> m (Maybe e)) -> SetProp m record
   deriving ( Typeable )
 
 instance IsProp SetProp
   where
-    performProp record (SetRecordPropM field   kl) = setRecords field record =<< kl record
-    performProp record (SetRecordProp  field    f) = setRecords field record $ f record
-    performProp record (SetPropM       field mval) = setRecords field record =<< mval
-    performProp record (SetProp        field  val) = setRecords field record val
+    performProp record (SetRecordPropM  field   kl) = setRecords field record =<< kl record
+    performProp record (SetRecordProp   field    f) = setRecords field record $ f record
+    performProp record (SetPropM        field mval) = setRecords field record =<< mval
+    performProp record (SetProp         field  val) = setRecords field record val
+    
+    performProp record (SetRecordPropM' field   kl) = whenJust (setRecords field record) =<< kl record
+    performProp record (SetRecordProp'  field    f) = whenJust (setRecords field record) $ f record
+    performProp record (SetPropM'       field mval) = whenJust (setRecords field record) =<< mval
+    performProp record (SetProp'        field  val) = whenJust (setRecords field record) val
 
 -- | Multi-field 'setRecord'.
 setRecords :: (Monad m, FieldSet field m record e) => [field] -> record -> e -> m ()
@@ -167,45 +221,74 @@ setRecords fields record val = forM_ fields $ \ field -> setRecord field record 
 {- |
   @since 0.2
   
-  'ModifyProp' is a service type used to modify field values. See @(':~')@,
-  @(':~$')@, @(':<~')@, @(':<~$')@, @('::~')@, @('::~$')@, @(':~<')@, @(':~<$')@
-  patterns.
+  'ModifyProp' is a service type used to modify field values.
 -}
 data ModifyProp m record
   where
-    -- | 'FieldModify' constructor corresponds to @(':~$')@ and @(':~')@.
+    -- | 'ModifyProp' constructor corresponds to @(':~$')@ and @(':~')@.
     ModifyProp :: FieldModify field m record e
                => ![field] -> !(e -> e) -> ModifyProp m record
     
-    -- | 'FieldModify' constructor corresponds to @(':<~$')@ and @(':<~')@.
+    -- | 'ModifyProp' constructor corresponds to @(':~?')@ and @(':?~')@.
+    ModifyProp' :: FieldModify field m record e
+                => ![field] -> !(e -> Maybe e) -> ModifyProp m record
+    
+    -- | 'ModifyPropM' constructor corresponds to @(':<~$')@ and @(':<~')@.
     ModifyPropM :: FieldModifyM field m record e
                 => ![field] -> !(e -> m e) -> ModifyProp m record
+    
+    -- | 'ModifyPropM' constructor corresponds to @(':<~?')@ and @(':?<~')@.
+    ModifyPropM' :: FieldModifyM field m record e
+                 => ![field] -> !(e -> m (Maybe e)) -> ModifyProp m record
     
     -- | 'Modify' constructor corresponds to @('::~$')@ and @('::~')@.
     Modify :: FieldModify field m record e
            => ![field] -> !(record -> e -> e) -> ModifyProp m record
     
-    -- | 'ModifyM' constructor corresponds to @(':~<$')@ and @(':~<')@.
+    -- | 'Modify' constructor corresponds to @('::~?')@ and @('::?~')@.
+    Modify' :: FieldModify field m record e
+            => ![field] -> !(record -> e -> Maybe e) -> ModifyProp m record
+    
+    -- | 'ModifyM' constructor corresponds to @(':~<')@ and @(':~<')@.
     ModifyM :: FieldModifyM field m record e
             => ![field] -> !(record -> e -> m e) -> ModifyProp m record
+    
+    -- | 'ModifyM' constructor corresponds to @(':~<?')@ and @(':?~<')@.
+    ModifyM' :: FieldModifyM field m record e
+             => ![field] -> !(record -> e -> m (Maybe e)) -> ModifyProp m record
   deriving ( Typeable )
 
 instance IsProp ModifyProp
   where
-    performProp record (Modify      field f) = () <$ modifyRecords  field record (f record)
-    performProp record (ModifyM     field f) = () <$ modifyRecordsM field record (f record)
-    performProp record (ModifyProp  field f) = () <$ modifyRecords  field record f
-    performProp record (ModifyPropM field f) = () <$ modifyRecordsM field record f
+    performProp record (Modify       field f) = () <$ modifyRecords  field record (f record)
+    performProp record (ModifyM      field f) = () <$ modifyRecordsM field record (f record)
+    performProp record (ModifyProp   field f) = () <$ modifyRecords  field record f
+    performProp record (ModifyPropM  field f) = () <$ modifyRecordsM field record f
+    
+    performProp record (Modify'      field f) = () <$ modifyRecords'  field record (f record)
+    performProp record (ModifyM'     field f) = () <$ modifyRecordsM' field record (f record)
+    performProp record (ModifyProp'  field f) = () <$ modifyRecords'  field record f
+    performProp record (ModifyPropM' field f) = () <$ modifyRecordsM' field record f
 
 -- | Multi-value 'modifyRecord'.
 modifyRecords :: (Monad m, FieldModify field m record e)
               => [field] -> record -> (e -> e) -> m ()
 modifyRecords fields record f = fields `forM_` \ field -> modifyRecord field record f
 
+-- | Multi-value 'modifyRecord'.
+modifyRecords' :: (Monad m, FieldModify field m record e)
+               => [field] -> record -> (e -> Maybe e) -> m ()
+modifyRecords' fields record f = fields `forM_` \ field -> modifyRecord' field record f
+
 -- | Multi-value 'modifyRecordM'.
 modifyRecordsM :: (Monad m, FieldModifyM field m record e)
                => [field] -> record -> (e -> m e) -> m ()
 modifyRecordsM fields record f = fields `forM_` \ field -> modifyRecordM field record f
+
+-- | Multi-value 'modifyRecordM'.
+modifyRecordsM' :: (Monad m, FieldModifyM field m record e)
+                => [field] -> record -> (e -> m (Maybe e)) -> m ()
+modifyRecordsM' fields record f = fields `forM_` \ field -> modifyRecordM' field record f
 
 --------------------------------------------------------------------------------
 
@@ -263,6 +346,14 @@ modifyRecord =  fieldModifyA.fromField
 {- |
   @since 0.3
   
+  Extract modifier from field. Out of class since @fmr-0.3@.
+-}
+modifyRecord' :: FieldModify field m record e => field -> record -> (e -> Maybe e) -> m e
+modifyRecord' fld record f = modifyRecord fld record (\ e -> fromMaybe e (f e))
+
+{- |
+  @since 0.3
+  
   Constraint for field with 'FieldModifyMA' accessor.
 -}
 type FieldModifyM field m record e = IsField field (FieldC m record e) FieldModifyMA
@@ -275,6 +366,14 @@ type FieldModifyM field m record e = IsField field (FieldC m record e) FieldModi
 modifyRecordM :: FieldModifyM field m record e => field -> ModifierMFor m record e
 modifyRecordM =  fieldModifyMA.fromField
 
+{- |
+  @since 0.3
+  
+  Extract monadic modifier from field. Out of class since @fmr-0.3@.
+-}
+modifyRecordM' :: (Functor m, FieldModifyM field m record e) => field -> record -> (e -> m (Maybe e)) -> m e
+modifyRecordM' fld record go = modifyRecordM fld record (\ e -> fromMaybe e <$> go e)
+
 --------------------------------------------------------------------------------
 
 {- |
@@ -285,6 +384,16 @@ pattern (:=) :: (Monad m, Typeable m, Typeable record)
              => FieldSet field m record e
              => field -> e -> Prop m record
 pattern field := val = Prop (SetProp [field] val)
+
+{- |
+  @since 0.3
+  
+  Pure optional value setter.
+-}
+pattern (:?=) :: (Monad m, Typeable m, Typeable record)
+              => FieldSet field m record e
+              => field -> Maybe e -> Prop m record
+pattern field :?= val = Prop (SetProp' [field] val)
 
 {- |
   Pure value setter with @record@. @set record [field ::= f]@ set @f record@ to
@@ -299,7 +408,18 @@ pattern (::=) :: (Monad m, Typeable m, Typeable record)
 pattern field ::= f = Prop (SetRecordProp [field] f)
 
 {- |
+  @since 0.3
+  
+  Pure optional value setter with @record@.
+-}
+pattern (::?=) :: (Monad m, Typeable m, Typeable record)
+               => FieldSet field m record e
+               => field -> (record -> Maybe e) -> Prop m record
+pattern field ::?= f = Prop (SetRecordProp' [field] f)
+
+{- |
   @since 0.2
+  
   Pure group setter. @set record [fields :=$ value]@ set @value@ to @record@'s
   some @fields@.
   
@@ -312,7 +432,18 @@ pattern (:=$) :: (Monad m, Typeable m, Typeable record)
 pattern fields :=$ val = Prop (SetProp fields val)
 
 {- |
+  @since 0.3
+  
+  Pure optional group value setter with @record@.
+-}
+pattern (:=?) :: (Monad m, Typeable m, Typeable record)
+              => FieldSet field m record e
+              => [field] -> Maybe e -> Prop m record
+pattern fields :=? val = Prop (SetProp' fields val)
+
+{- |
   @since 0.2
+  
   Pure group setter with @record@. @set record [fields ::=$ f]@ set @f record@
   to @record@'s some @fields@.
   
@@ -325,7 +456,15 @@ pattern (::=$) :: (Monad m, Typeable m, Typeable record)
                => [field] -> (record -> e) -> Prop m record
 pattern fields ::=$ f = Prop (SetRecordProp fields f)
 
---------------------------------------------------------------------------------
+{- |
+  @since 0.3
+  
+  Pure group setter with @record@.
+-}
+pattern (::=?) :: (Monad m, Typeable m, Typeable record)
+               => FieldSet field m record e
+               => [field] -> (record -> Maybe e) -> Prop m record
+pattern fields ::=? f = Prop (SetRecordProp' fields f)
 
 {- |
   Pure value modifier. @set record [field :~ f]@ modify value of @record@'s
@@ -340,6 +479,16 @@ pattern (:~) :: (Monad m, Typeable m, Typeable record)
 pattern field :~ f = Prop (ModifyProp [field] f)
 
 {- |
+  @since 0.3
+  
+  Pure optional modifier.
+-}
+pattern (:?~) :: (Monad m, Typeable m, Typeable record)
+              => FieldModify field m record e
+              => field -> (e -> Maybe e) -> Prop m record
+pattern field :?~ f = Prop (ModifyProp' [field] f)
+
+{- |
   Pure value modifier with @record@. @set record [field ::~ f]@ modify value of
   @record@'s @field@ using @f record@ function.
   
@@ -350,6 +499,16 @@ pattern (::~) :: (Monad m, Typeable m, Typeable record)
               => FieldModify field m record e
               => field -> (record -> e -> e) -> Prop m record
 pattern field ::~ f = Prop (Modify [field] f)
+
+{- |
+  @since 0.3
+  
+  Pure optional modifier with @record@.
+-}
+pattern (::?~) :: (Monad m, Typeable m, Typeable record)
+               => FieldModify field m record e
+               => field -> (record -> e -> Maybe e) -> Prop m record
+pattern field ::?~ f = Prop (Modify' [field] f)
 
 {- |
   @since 0.2
@@ -366,6 +525,16 @@ pattern (:~$) :: (Monad m, Typeable m, Typeable record)
 pattern fields :~$ f = Prop (ModifyProp fields f)
 
 {- |
+  @since 0.3
+  
+  Monadic optional group modifier.
+-}
+pattern (:~?) :: (Monad m, Typeable m, Typeable record)
+              => FieldModify field m record e
+              => [field] -> (e -> Maybe e) -> Prop m record
+pattern fields :~? f = Prop (ModifyProp' fields f)
+
+{- |
   @since 0.2
   Pure group modifier with @record@.
   @set record [fields ::~$ f]@ modify values of @record@'s @fields@ using
@@ -380,7 +549,15 @@ pattern (::~$) :: (Monad m, Typeable m, Typeable record)
                => [field] -> (record -> e -> e) -> Prop m record
 pattern fields ::~$ f = Prop (Modify fields f)
 
---------------------------------------------------------------------------------
+{- |
+  @since 0.3
+  
+  Monadic group optional modifier with @record@.
+-}
+pattern (::~?) :: (Monad m, Typeable m, Typeable record)
+               => FieldModify field m record e
+               => [field] -> (record -> e -> Maybe e) -> Prop m record
+pattern fields ::~? f = Prop (Modify' fields f)
 
 {- |
   @since 0.2
@@ -399,6 +576,16 @@ pattern (:<=) :: (Monad m, Typeable m, Typeable record)
 pattern field :<= mval = Prop (SetPropM [field] mval)
 
 {- |
+  @since 0.3
+  
+  Monadic optional setter.
+-}
+pattern (:?<=) :: (Monad m, Typeable m, Typeable record)
+               => FieldSet field m record e
+               => field -> m (Maybe e) -> Prop m record
+pattern field :?<= mval = Prop (SetPropM' [field] mval)
+
+{- |
   @since 0.2
   
   Monadic value setter with @record@. @set record [field :=< mvalue]@ set result
@@ -415,6 +602,16 @@ pattern (:=<) :: (Monad m, Typeable m, Typeable record)
 pattern field :=< f = Prop (SetRecordPropM [field] f)
 
 {- |
+  @since 0.3
+  
+  Monadic optional setter with @record@.
+-}
+pattern (:?=<) :: (Monad m, Typeable m, Typeable record)
+               => FieldSet field m record e
+               => field -> (record -> m (Maybe e)) -> Prop m record
+pattern field :?=< f = Prop (SetRecordPropM' [field] f)
+
+{- |
   @since 0.2
   
   Monadic group setter. @set record [fields :<=$ mvalue]@ set result of @mvalue@
@@ -429,6 +626,16 @@ pattern (:<=$) :: (Monad m, Typeable m, Typeable record)
                => FieldSet field m record e
                => [field] -> m e -> Prop m record
 pattern fields :<=$ mval = Prop (SetPropM fields mval)
+
+{- |
+  @since 0.3
+  
+  Monadic optional group setter.
+-}
+pattern (:<=?) :: (Monad m, Typeable m, Typeable record)
+               => FieldSet field m record e
+               => [field] -> m (Maybe e) -> Prop m record
+pattern fields :<=? mval = Prop (SetPropM' fields mval)
 
 {- |
   @since 0.2
@@ -448,7 +655,15 @@ pattern (:=<$) :: (Monad m, Typeable m, Typeable record)
                => [field] -> (record -> m e) -> Prop m record
 pattern fields :=<$ f = Prop (SetRecordPropM fields f)
 
---------------------------------------------------------------------------------
+{- |
+  @since 0.3
+  
+  Monadic optional group modifier with @record@.
+-}
+pattern (:=<?) :: (Monad m, Typeable m, Typeable record)
+               => FieldSet field m record e
+               => [field] -> (record -> m (Maybe e)) -> Prop m record
+pattern fields :=<? f = Prop (SetRecordPropM' fields f)
 
 {- |
   @since 0.2
@@ -466,6 +681,16 @@ pattern (:<~) :: (Monad m, Typeable m, Typeable record)
 pattern field :<~ f = Prop (ModifyPropM [field] f)
 
 {- |
+  @since 0.3
+  
+  Monadic optional modifier.
+-}
+pattern (:?<~) :: (Monad m, Typeable m, Typeable record)
+               => FieldModifyM field m record e
+               => field -> (e -> m (Maybe e)) -> Prop m record
+pattern field :?<~ f = Prop (ModifyPropM' [field] f)
+
+{- |
   @since 0.2
   
   Monadic value modifier with @record@. @set record [field :<~ f]@ modifies
@@ -479,6 +704,16 @@ pattern (:~<) :: (Monad m, Typeable m, Typeable record)
               => FieldModifyM field m record e
               => field -> (record -> e -> m e) -> Prop m record
 pattern field :~< f = Prop (ModifyM [field] f)
+
+{- |
+  @since 0.3
+  
+  Monadic optional modifer with @record@.
+-}
+pattern (:?~<) :: (Monad m, Typeable m, Typeable record)
+               => FieldModifyM field m record e
+               => field -> (record -> e -> m (Maybe e)) -> Prop m record
+pattern field :?~< f = Prop (ModifyM' [field] f)
 
 {- |
   @since 0.2
@@ -496,6 +731,16 @@ pattern (:<~$) :: (Monad m, Typeable m, Typeable record)
 pattern fields :<~$ f = Prop (ModifyPropM fields f)
 
 {- |
+  @since 0.3
+  
+  Monadic optional group modifier.
+-}
+pattern (:<~?) :: (Monad m, Typeable m, Typeable record)
+               => FieldModifyM field m record e
+               => [field] -> (e -> m (Maybe e)) -> Prop m record
+pattern fields :<~? f = Prop (ModifyPropM' fields f)
+
+{- |
   @since 0.2
   
   Monadic group modifier with @record@. @set record [fields :~<$ f]@ modifies
@@ -509,6 +754,16 @@ pattern (:~<$) :: (Monad m, Typeable m, Typeable record)
                => FieldModifyM field m record e
                => [field] -> (record -> e -> m e) -> Prop m record
 pattern fields :~<$ f = Prop (ModifyM fields f)
+
+{- |
+  @since 0.3
+  
+  Monadic optional group modifier with @record@.
+-}
+pattern (:~<?) :: (Monad m, Typeable m, Typeable record)
+               => FieldModifyM field m record e
+               => [field] -> (record -> e -> m (Maybe e)) -> Prop m record
+pattern fields :~<? f = Prop (ModifyM' fields f)
 
 --------------------------------------------------------------------------------
 
@@ -590,6 +845,11 @@ fieldQuot x y = Property (ModifyProp [x] (`quot` y))
 fieldRem :: (Monad m, FieldModify field m record e, Integral e)
          => field -> e -> Prop m record
 fieldRem x y = Property (ModifyProp [x] (`rem` y))
+
+--------------------------------------------------------------------------------
+
+whenJust :: Monad m => (a -> m ()) -> Maybe a -> m ()
+whenJust =  maybe (return ())
 
 
 
