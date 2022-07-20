@@ -390,13 +390,13 @@ type c ~</= cs = FObjectElem c cs ~ 'False
 --------------------------------------------------------------------------------
 
 -- | Closed class of generalized field accessor getters.
-class a ~<= as => a ~:= as
+class a ~:= as
   where
     getFObject :: FObject as c -> c a
 
 instance {-# INCOHERENT #-} a ~:= (a : as) where getFObject (a :++ _) = a
 
-instance {-# INCOHERENT #-} (a ~<= (a' : as), a ~:= as) => a ~:= (a' : as)
+instance {-# INCOHERENT #-} a ~:= as => a ~:= (a' : as)
   where
     getFObject (_ :++ as) = getFObject as
 
