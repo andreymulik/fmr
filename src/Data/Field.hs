@@ -18,7 +18,7 @@ module Data.Field
   
   -- * Field
   GField ( .., SField, Field, getField, setField, modifyField, modifyFieldM ),
-  FieldA, Field, sfield,
+  FieldA, Field, sfield, this',
   
   -- * IsMVar and MonadVar
   IsMVar (..), MonadVar (..)
@@ -155,6 +155,16 @@ class (Monad m, IsMVar m (Var m)) => MonadVar m
 instance MonadVar (ST s) where type Var (ST s) = STRef s
 instance MonadVar IO     where type Var IO     = IORef
 instance MonadVar STM    where type Var STM    = TVar
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  Same as 'this', but have more strict type.
+-}
+this' :: MonadVar m => Field m (Var m e) e
+this' =  this
 
 
 
