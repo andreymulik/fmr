@@ -2,8 +2,8 @@
 {-# LANGUAGE Safe, CPP, GADTs, TypeOperators, PatternSynonyms, ViewPatterns #-}
 {-# LANGUAGE ConstraintKinds, DataKinds, RankNTypes, KindSignatures #-}
 
--- For [ghc-8.0 .. ghc-8.4) support.
-#if __GLASGOW_HASKELL__ < 840
+-- For [ghc-8.0 .. ghc-8.4] support.
+#if __GLASGOW_HASKELL__ <= 804
 {-# LANGUAGE TypeInType #-}
 #endif
 
