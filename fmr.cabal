@@ -9,7 +9,7 @@ author:        Andrey Mulik
 maintainer:    <work.a.mulik@gmail.com>
 bug-reports:   https://github.com/andreymulik/fmr/issues
 
-copyright:     2020 Andrey Mulik
+copyright:     2020-2023 Andrey Mulik
 license-file:  LICENSE
 license:       BSD3
 
@@ -27,14 +27,16 @@ tested-with:
   GHC == 8.2.2,
   -- lts-12.26
   GHC == 8.4.4,
-  -- lts-18.8
-  GHC == 8.10.6,
-  -- lts-18.18
+  -- lts-14.27
+  GHC == 8.6.5,
+  -- lts-18.28
   GHC == 8.10.7,
-  -- nightly-2021-12-10
-  GHC == 9.0.1,
-  -- nightly-2022-02-01
-  GHC == 9.0.2
+  -- lts-19.33
+  GHC == 9.0.2,
+  -- lts-20.23
+  GHC == 9.2.7,
+  -- nightly-2023-05-31
+  GHC == 9.4.5
 
 source-repository head
   type: git
@@ -51,15 +53,17 @@ Library
   default-language: Haskell2010
   hs-source-dirs:   src
   
-  build-depends:    base >= 4.9 && < 5, data-default-class >= 0.1 && < 0.2
-  ghc-options:      -Wall -Wcompat
+  build-depends:
+    base               >= 4.9 && <   5,
+    data-default-class >= 0.1 && < 0.2
+  
+  ghc-options: -Wall -Wcompat
   
   exposed-modules:
-    Data.Property
-    Data.MField
-    
-    Data.Field.Observe
-    Data.Field.Object
     Data.Field
-
-
+  
+  other-modules:
+    Data.Field.Prop.Types
+    Data.Field.Prop
+    Data.Field.Type
+    Data.Field.Utils
