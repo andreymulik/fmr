@@ -1,4 +1,5 @@
-{-# LANGUAGE Safe, MagicHash, DataKinds, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, FlexibleInstances #-}
+{-# LANGUAGE Trustworthy, CPP, MagicHash, DataKinds #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 
 {- |
@@ -86,6 +87,8 @@ import Data.Field.Utils
 import Data.Field.Type
 import Data.Functor
 import Data.Maybe
+
+import GHC.OverloadedLabels
 
 import Control.Monad
 
@@ -260,7 +263,8 @@ infixl 0 `Field`
   __Example 6 (custom props):__
   
   Previously, we used only predefined attributes. Now that we know how to create
-  predefined ones, let's create a new attributes.
+  predefined ones, let's create a new attributes. Another unpleasant point: the
+  type 'fromLabel' in @base >= 4.10@ and @base-4.9@ is different.
   
   Sub-attribute for \"get\".
   
@@ -303,6 +307,20 @@ infixl 0 `Field`
   @
   
   So now we can define a new attribute or sub-attribute.
+  
+  __Example 7 (overloaded labels):__
+  
+  You can also use @OverloadedLabels@. __Example 1__ would look like this:
+  
+  @
+    runIdentity $ do
+     idField <- field identityP :: Identity (FieldT Identity '[GetA] Int Int)
+     #get idField (1 :: Int) :: Identity Int -- return 1
+  @
+  
+  As you can see, in general OverloadedLabels requires more explicit types.
+  In addition, 'IsLabel' does not allow you to add an instance with 'AccessUse',
+  so for each new field you will have to add a new instances.
   
   __Restrictions:__
 
@@ -405,6 +423,38 @@ modify =  use# (proxy# :: Proxy# "modify") (proxy# :: Proxy# "")
 modifyM :: UseField "modifyM" "" api => FieldT m api rep a
         -> rep -> (a -> m a) -> m a
 modifyM =  use# (proxy# :: Proxy# "modifyM") (proxy# :: Proxy# "")
+
+instance UseField "get" "" api => IsLabel "get" (FieldT m api rep a -> rep -> m a)
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = get
+#else
+    fromLabel _ = get
+#endif
+
+instance UseField "set" "" api => IsLabel "set" (FieldT m api rep a -> rep -> a -> m ())
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = set
+#else
+    fromLabel _ = set
+#endif
+
+instance UseField "modify" "" api => IsLabel "modify" (FieldT m api rep a -> rep -> (a -> a) -> m a)
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = modify
+#else
+    fromLabel _ = modify
+#endif
+
+instance UseField "modifyM" "" api => IsLabel "modifyM" (FieldT m api rep a -> rep -> (a -> m a) -> m a)
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = modifyM
+#else
+    fromLabel _ = modifyM
+#endif
 
 --------------------------------------------------------------------------------
 
