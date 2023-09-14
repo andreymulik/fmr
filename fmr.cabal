@@ -33,10 +33,12 @@ tested-with:
   GHC == 8.10.7,
   -- lts-19.33
   GHC == 9.0.2,
-  -- lts-20.23
-  GHC == 9.2.7,
-  -- nightly-2023-05-31
-  GHC == 9.4.5
+  -- lts-20.26
+  GHC == 9.2.8,
+  -- lts-21.11
+  GHC == 9.4.6,
+  -- nightly-2023-09-14
+  GHC == 9.6.2
 
 source-repository head
   type: git
@@ -67,3 +69,7 @@ Library
     Data.Field.Prop
     Data.Field.Type
     Data.Field.Utils
+
+
+
+

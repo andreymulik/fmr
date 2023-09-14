@@ -365,7 +365,7 @@ type TField = FieldT STM
   
   Apply actions to given value and discard results.
 -}
-sets :: Monad m => rep -> [rep -> m ()] -> m ()
+sets :: Monad m => rep -> [RunFieldT m rep] -> m ()
 sets =  mapM_ . flip ($)
 
 {- |
@@ -579,7 +579,7 @@ type UpdateMA = ModifyMA' '["get", "set", "modify", "modifyM"]
 -- | One-way pattern @(field ':=' value) === 'set' field value@.
 pattern (:=) :: (Monad m, UseField "set" "" api)
              => FieldT m api rep a -> a
-             -> rep -> m ()
+             -> RunFieldT m rep
 
 pattern fld := a <- (const Nothing -> Just (fld, a))
   where
@@ -588,7 +588,7 @@ pattern fld := a <- (const Nothing -> Just (fld, a))
 -- | One-way pattern @(field ':~' value) === 'modify' field value@.
 pattern (:~) :: (Monad m, UseField "modify" "" api)
              => FieldT m api rep a -> (a -> a)
-             -> rep -> m ()
+             -> RunFieldT m rep
 
 pattern fld :~ a <- (const Nothing -> Just (fld, a))
   where
@@ -597,7 +597,7 @@ pattern fld :~ a <- (const Nothing -> Just (fld, a))
 -- | One-way pattern @(field '::=' f) === let value = f field in 'modify' field value@
 pattern (::=) :: (Monad m, UseField "set" "" api)
               => FieldT m api rep a -> (FieldT m api rep a -> a)
-              -> rep -> m ()
+              -> RunFieldT m rep
 
 pattern fld ::= f <- (const Nothing -> Just (fld, f))
   where
@@ -605,8 +605,8 @@ pattern fld ::= f <- (const Nothing -> Just (fld, f))
 
 -- | One-way pattern @(field '::~' f) === let g = f field in 'modify' field g@
 pattern (::~) :: (Monad m, UseField "modify" "" api)
-             => FieldT m api rep a -> (FieldT m api rep a -> a -> a)
-             -> rep -> m ()
+              => FieldT m api rep a -> (FieldT m api rep a -> a -> a)
+              -> RunFieldT m rep
 
 pattern fld ::~ f <- (const Nothing -> Just (fld, f))
   where
@@ -621,7 +621,7 @@ pattern fld ::~ f <- (const Nothing -> Just (fld, f))
 -}
 (?=) :: (Monad m, UseField "set" "" api)
      => FieldT m api rep a -> Maybe a
-     -> rep -> m ()
+     -> RunFieldT m rep
 
 fld ?= a = \ rep -> maybe (return ()) (set fld rep) a
 
@@ -632,7 +632,7 @@ fld ?= a = \ rep -> maybe (return ()) (set fld rep) a
 -}
 (?~) :: (Monad m, UseField "modify" "" api)
      => FieldT m api rep a -> (a -> Maybe a)
-     -> rep -> m ()
+     -> RunFieldT m rep
 
 fld ?~ f = \ rep -> () <$ modify fld rep (\ x -> x `fromMaybe` f x)
 
@@ -643,7 +643,7 @@ fld ?~ f = \ rep -> () <$ modify fld rep (\ x -> x `fromMaybe` f x)
 -}
 (??=) :: (Monad m, UseField "set" "" api)
       => FieldT m api rep a -> (FieldT m api rep a -> Maybe a)
-      -> rep -> m ()
+      -> RunFieldT m rep
 
 fld ??= f = fld ?= f fld
 
@@ -654,7 +654,7 @@ fld ??= f = fld ?= f fld
 -}
 (??~) :: (Monad m, UseField "modify" "" api)
       => FieldT m api rep a -> (FieldT m api rep a -> a -> Maybe a)
-      -> rep -> m ()
+      -> RunFieldT m rep
 
 fld ??~ f = fld ?~ f fld
 
@@ -667,7 +667,7 @@ fld ??~ f = fld ?~ f fld
 -}
 ($:=) :: (Monad m, UseField "set" "" api)
       => [FieldT m api rep a] -> a
-      -> rep -> m ()
+      -> RunFieldT m rep
 
 flds $:= a = \ rep -> flds `forM_` \ fld -> fld := a $ rep
 
@@ -678,7 +678,7 @@ flds $:= a = \ rep -> flds `forM_` \ fld -> fld := a $ rep
 -}
 ($:~) :: (Monad m, UseField "modify" "" api)
       => [FieldT m api rep a] -> (a -> a)
-      -> rep -> m ()
+      -> RunFieldT m rep
 
 flds $:~ f = \ rep -> flds `forM_` \ fld -> fld :~ f $ rep
 
@@ -689,7 +689,7 @@ flds $:~ f = \ rep -> flds `forM_` \ fld -> fld :~ f $ rep
 -}
 ($::=) :: (Monad m, UseField "set" "" api)
        => [FieldT m api rep a] -> (FieldT m api rep a -> a)
-       -> rep -> m ()
+       -> RunFieldT m rep
 
 flds $::= f = \ rep -> flds `forM_` \ fld -> fld ::= f $ rep
 
@@ -700,7 +700,7 @@ flds $::= f = \ rep -> flds `forM_` \ fld -> fld ::= f $ rep
 -}
 ($::~) :: (Monad m, UseField "modify" "" api)
        => [FieldT m api rep a] -> (FieldT m api rep a -> a -> a)
-       -> rep -> m ()
+       -> RunFieldT m rep
 
 flds $::~ f = \ rep -> flds `forM_` \ fld -> (fld ::~ f) rep
 
@@ -713,7 +713,7 @@ flds $::~ f = \ rep -> flds `forM_` \ fld -> (fld ::~ f) rep
 -}
 (?:=) :: (Monad m, UseField "set" "" api)
       => [FieldT m api rep a] -> Maybe a
-      -> rep -> m ()
+      -> RunFieldT m rep
 
 fld ?:= a = \ rep -> maybe (return ()) (\ x -> fld $:= x $ rep) a
 
@@ -724,7 +724,7 @@ fld ?:= a = \ rep -> maybe (return ()) (\ x -> fld $:= x $ rep) a
 -}
 (?:~) :: (Monad m, UseField "modify" "" api)
       => [FieldT m api rep a] -> (a -> Maybe a)
-      -> rep -> m ()
+      -> RunFieldT m rep
 
 fld ?:~ f = fld $:~ \ x -> x `fromMaybe` f x
 
@@ -735,7 +735,7 @@ fld ?:~ f = fld $:~ \ x -> x `fromMaybe` f x
 -}
 (?::=) :: (Monad m, UseField "set" "" api)
        => [FieldT m api rep a] -> Maybe (FieldT m api rep a -> a)
-       -> rep -> m ()
+       -> RunFieldT m rep
 
 fld ?::= f = \ rep -> maybe (return ()) (\ g -> fld $::= g $ rep) f
 
@@ -746,7 +746,7 @@ fld ?::= f = \ rep -> maybe (return ()) (\ g -> fld $::= g $ rep) f
 -}
 (?::~) :: (Monad m, UseField "modify" "" api)
        => [FieldT m api rep a] -> Maybe (FieldT m api rep a -> a -> a)
-       -> rep -> m ()
+       -> RunFieldT m rep
 
 fld ?::~ f = \ rep -> maybe (return ()) (\ g -> fld $::~ g $ rep) f
 

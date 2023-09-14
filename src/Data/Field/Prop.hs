@@ -125,37 +125,27 @@ prop =  \ p# -> createProp (toProxy# p#)
 -}
 class HasAttribute sub subs
   where
-    hasAttr :: Prop var name subs m rep a -> Prop var name '[sub] m rep a
+    hasAttr :: Proxy# sub -> Prop var name subs m rep a -> Prop var name '[sub] m rep a
     
     updateAttr :: Prop var name subs m rep a -> Prop var name '[sub] m rep a
                -> Prop var name subs m rep a
 
 instance {-# INCOHERENT #-} HasAttribute sub (sub : subs)
   where
-    hasAttr    (Prop _ x) = Prop def x
+    hasAttr  _ (Prop _ x) = Prop def x
     updateAttr (Prop p _) = Prop p . getAttr
 
 instance {-# INCOHERENT #-} (sub /= sub', HasAttribute sub subs)
       => HasAttribute sub (sub' : subs)
   where
-    hasAttr               = hasAttr . getProp
+    hasAttr          sub# = hasAttr sub# . getProp
     updateAttr (Prop p x) = (`Prop` x) . updateAttr p
-
---------------------------------------------------------------------------------
 
 useAttribute :: (HasAttribute sub subs, HasAttribute "" subs) => Proxy# sub
              -> SomeProp name subs m rep a -> AccessUse name sub m rep a
-
-useAttribute sub# (SomeProp prop') = case hasAttr prop' of
-    Prop _ sub -> useAttr# sub# sub rep
-  where
-    Prop _ rep = hasAttr prop'
-
-useAttr# :: UseAttribute var name sub m rep a => Proxy# sub
-         -> var (AccessRep name sub m rep a)
-         -> var (AccessRep name ""  m rep a)
-         -> AccessUse name sub m rep a
-useAttr# =  \ _ -> useAttr
+useAttribute sub# (SomeProp prop') = case hasAttr sub# prop' of
+  Prop _ attr# -> case hasAttr (proxy# :: Proxy# "") prop' of
+    Prop _ rep# -> useAttr attr# rep#
 
 {- |
   @since 0.3

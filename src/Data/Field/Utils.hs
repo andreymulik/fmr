@@ -17,7 +17,7 @@ module Data.Field.Utils
   IsMVar (..), var', Identity (..),
   
   -- ** Basic reference interface
-  Proxy#, proxy#, Proxy (..), toProxy#,
+  RunFieldT, Proxy#, proxy#, Proxy (..), toProxy#,
   
   -- * Uniqueness
   UniqueList, type (/=),
@@ -80,6 +80,17 @@ type family NotListElem x xs err :: Constraint
 --------------------------------------------------------------------------------
 
 type (x :: k) /= (y :: k) = (x == y) ~ 'False
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  Since older versions of ghc don't understand that the pattern type
+  @(a -> b -> c -> d)@ is just a special case of @(a -> b -> t)@, the type
+  @(rep -> m())@ has been replaced with @('RunFieldT' m rep)@.
+-}
+type RunFieldT m rep = rep -> m ()
 
 --------------------------------------------------------------------------------
 
@@ -221,5 +232,4 @@ updateMTVar rep f = do x <- f =<< readTVar rep; x <$ writeTVar rep x
 
 toProxy# :: Proxy (a :: k) -> Proxy# (a :: k)
 toProxy# =  \ _ -> proxy#
-
 
