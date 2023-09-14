@@ -101,7 +101,7 @@ infixl 0 `Field`
   @
     runIdentity $ do
       idField <- 'field' 'identityP' :: 'Identity' ('FieldT' 'Identity' \'['GetA'] 'Int' 'Int')
-      get idField 1 -- return 1
+      'get' idField 1 -- 'return' 1
   @
   
   Now we have the simplest field @idField@, let's look at its type:
@@ -136,19 +136,19 @@ infixl 0 `Field`
   
   @
     -- Create 'IORef' - mutable variable.
-    ioref <- newIORef (1 :: Int)
+    ioref <- 'newIORef' (1 :: Int)
     
     -- Create immutable 'IOField' using 'field' procedure.
     let
         myField :: IOField '[GetA, SetA, ModifyA] (IORef Int) Int
-        myField =  runIdentity $ field identityP
+        myField =  'runIdentity' $ 'field' 'identityP'
     
-    'get' myField ioref   -- return 1
-    'set' myField ioref 2 -- return ()
-    'get' myField ioref   -- return 2
+    'get' myField ioref   -- 'return' 1
+    'set' myField ioref 2 -- 'return' ()
+    'get' myField ioref   -- 'return' 2
     
-    'modify' myField ioref pred -- return 1
-    'get' myField ioref         -- return 1
+    'modify' myField ioref 'pred' -- 'return' 1
+    'get' myField ioref         -- 'return' 1
   @
   
   As you can see, our new field has different:
@@ -167,27 +167,27 @@ infixl 0 `Field`
   
   @
     -- Create 'IORef' - mutable variable.
-    ioref <- newIORef (1 :: Int)
+    ioref <- 'newIORef' (1 :: Int)
     
     -- Create mutable 'IOField' using 'field' procedure.
-    myField <- field iorefP :: IO (IOField '[ReadA, WriteA] (IORef Int) Int)
+    myField <- 'field' 'iorefP' :: 'IO' ('IOField' '['ReadA', 'WriteA'] ('IORef' Int) Int)
     
-    let getGetter    = use (Proxy :: Proxy "get") (Proxy :: Proxy "get")
-    let modifySetter = use (Proxy :: Proxy "set") (Proxy :: Proxy "modify")
+    let getGetter    = 'use' (Proxy :: Proxy "get") (Proxy :: Proxy "get")
+    let modifySetter = 'use' (Proxy :: Proxy "set") (Proxy :: Proxy "modify")
     
     -- same as 'get' myField ioref
-    get' <- getGetter myField
-    get' ioref
+    getter' <- getGetter myField
+    getter' ioref
     
-    modifySetter myField $ \ set' a -> set' (max 0 a)
+    modifySetter myField $ \\ setter' a -> setter' (max 0 a)
     
-    set myField ioref 1
-    get myField ioref
-    -- ^ return 1
+    'set' myField ioref 1
+    'get' myField ioref
+    -- ^ 'return' 1
     
-    set myField ioref (-5)
-    get myField ioref
-    -- ^ return 0
+    'set' myField ioref (-5)
+    'get' myField ioref
+    -- ^ 'return' 0
   @
   
   __Example 4 (manual attributes):__
@@ -196,26 +196,26 @@ infixl 0 `Field`
   
   @
     fileSize' :: IsMVar IO var => Proxy var -> IO (IOField [GetA, SetA, ModifyA, ModifyMA] Handle Integer)
-    fileSize' =  \ var -> do
-      getter <- var' var $ AccessGet    hFileSize
-      setter <- var' var $ AccessSet hSetFileSize
+    fileSize' =  \\ var -> do
+      getter <- 'var'' var $ 'AccessGet'    'System.IO.hFileSize'
+      setter <- 'var'' var $ 'AccessSet' 'System.IO.hSetFileSize'
       
-      modifier <- var' var . AccessModify $ \ hdl f -> do
-        size <- f <$> hFileSize hdl
-        size <$ hSetFileSize hdl size
+      modifier \<- 'var'' var . 'AccessModify' $ \\ hdl f -\> do
+        size <- f \<$\> 'System.IO.hFileSize' hdl
+        size <$ 'System.IO.hSetFileSize' hdl size
       
-      modifierM <- var' var . AccessModifyM $ \ hdl go -> do
+      modifierM \<- var' var . 'AccessModifyM' $ \\ hdl go -\> do
         size <- go =<< hFileSize hdl
         size <$ hSetFileSize hdl size
       
-      return $ def `Field` SomeProp (Prop def modifierM)
-                   `Field` SomeProp (Prop def modifier)
-                   `Field` SomeProp (Prop def setter)
-                   `Field` SomeProp (Prop def getter)
+      'return' $ def \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifierM)
+                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifier)
+                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' setter)
+                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' getter)
   @
   
-  So we use the 'var'' function to specify the variable's type and make
-  the field from created attributes.
+  So we use the @var'@ function to specify the variable's type and make the
+  field from created attributes.
   
   __Example 5 (custom attributes):__
   
@@ -223,38 +223,38 @@ infixl 0 `Field`
   Now let's do it the right way:
   
   @
-  instance Attribute "get" "" IO Handle Integer
+  instance 'Attribute' "get" "" 'IO' 'System.IO.Handle' Integer
     where
-      attribute = AccessGet hFileSize
+      'attribute' = 'AccessGet' 'System.IO.hFileSize'
   
-  instance Attribute "set" "" IO Handle Integer
+  instance 'Attribute' "set" "" 'IO' 'System.IO.Handle' Integer
     where
-      attribute = AccessSet hSetFileSize
+      'attribute' = 'AccessSet' 'System.IO.hSetFileSize'
   
-  instance Attribute "modify" "" IO Handle Integer
+  instance 'Attribute' "modify" "" 'IO' 'System.IO.Handle' Integer
     where
-      attribute = AccessModify $ \ hdl f -> do
-        size <- f \<$\> hFileSize hdl
-        size <$ hSetFileSize hdl size
+      'attribute' = 'AccessModify' $ \\ hdl f -> do
+        size <- f \<$\> 'System.IO.hFileSize' hdl
+        size <$ 'System.IO.hSetFileSize' hdl size
   
-  instance Attribute "modifyM" "" IO Handle Integer
+  instance 'Attribute' "modifyM" "" 'IO' 'System.IO.Handle' Integer
     where
-      attribute = AccessModifyM $ \ hdl go -> do
-        size <- go =<< hFileSize hdl
-        size <$ hSetFileSize hdl size
+      'attribute' = 'AccessModifyM' $ \\ hdl go -> do
+        size <- go =<< 'System.IO.hFileSize' hdl
+        size <$ 'System.IO.hSetFileSize' hdl size
   
   -- | With 'Attribute' instances we can create default attributes manually or just use 'field'.
-  fileSize' :: IsMVar IO var => Proxy var -> IO (IOField [GetA, SetA, ModifyA, ModifyMA] Handle Integer)
-  fileSize' =  \ p# -> do
-    getter    <- var' p# attribute
-    setter    <- var' p# attribute
-    modifier  <- var' p# attribute
-    modifierM <- var' p# attribute
+  fileSize' :: IsMVar IO var => Proxy var -> 'IO' ('IOField' ['GetA', 'SetA', 'ModifyA', 'ModifyMA'] 'System.IO.Handle' Integer)
+  fileSize' =  \\ p# -> do
+    getter    <- var' p# 'attribute'
+    setter    <- var' p# 'attribute'
+    modifier  <- var' p# 'attribute'
+    modifierM <- var' p# 'attribute'
     
-    return $ def `Field` SomeProp (Prop def modifierM)
-                 `Field` SomeProp (Prop def modifier)
-                 `Field` SomeProp (Prop def setter)
-                 `Field` SomeProp (Prop def getter)
+    'return' $ 'Data.Default.Class.def' \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifierM)
+                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifier)
+                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' setter)
+                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' getter)
   @
   
   __Example 6 (custom props):__
@@ -265,40 +265,41 @@ infixl 0 `Field`
   Sub-attribute for \"get\".
   
   @
-    type instance AccessUse "get" "length" m rep a = rep -> m Int
+    type instance 'AccessUse' "get" "length" m rep a = rep -> m Int
     
-    data instance AccessRep "get" "length" m rep a
+    data instance 'AccessRep' "get" "length" m rep a
     
-    instance Attribute "get" "length" m rep a
+    instance 'Attribute' "get" "length" m rep a
       where
-        attribute = undefined
+        'attribute' = undefined
     
-    instance (Foldable t, IsMVar m var) => UseAttribute var "get" "length" m rep (t a)
+    instance (Foldable t, IsMVar m var) => 'UseAttribute' var "get" "length" m rep (t a)
       where
-        useAttr _ storedGetter rep = do
-          AccessGet getter <- fromMRef storedGetter
+        'useAttr' _ storedGetter rep = do
+          'AccessGet' getter <- fromMRef storedGetter
           length \<$\> getter rep
     
     listLength' ::
       (
-        IsMVar new var, IsMVar m var, Foldable t, Attribute "get" "" m rep (t a)
-      ) => Proxy var -> new (FieldT m '[GetA' '["length"]] rep (t a))
+        IsMVar new var, IsMVar m var, Foldable t,
+        'Attribute' "get" "" m rep (t a)
+      ) => Proxy var -> new ('FieldT' m '['GetA'' '["length"]] rep (t a))
     listLength' =  field
   @
   
   Something completely different:
   
   @
-    type instance AccessUse "version" "" m rep a = m Version
+    type instance 'AccessUse' "version" "" m rep a = m 'Data.Version.Version'
     
-    newtype instance AccessRep "version" "" m rep a = AccessVersion
+    newtype instance 'AccessRep' "version" "" m rep a = AccessVersion
       {
-        accessVersion :: Version
+        accessVersion :: 'Data.Version.Version'
       }
     
-    instance IsMVar m var => UseAttribute var "version" "" m rep a
+    instance IsMVar m var => 'UseAttribute' var "version" "" m rep a
       where
-        useAttr _ versionRep = accessVersion \<$\> fromMRef versionRep
+        'useAttr' _ versionRep = accessVersion \<$\> 'fromMRef' versionRep
   @
   
   So now we can define a new attribute or sub-attribute.
@@ -309,16 +310,17 @@ infixl 0 `Field`
   
   * fmr-0.3 requires more explicit types than @fmr-0.2@
   * 'Data.Typeable.Typeable' and 'Data.Typeable.cast' is no longer used in @fmr-0.3@
-  * attributes in the same 'Prop' must be stored in the same variable
+  * attributes of one Prop must be stored in variables of the same type
   * patterns from older versions can only be used as functions now
   * there is no pretty way to insert or replace an attribute in an 'field'-generated
-  'Prop' or 'FieldT', only 'updateAttribute'
+  'Prop' or 'FieldT', only 'updateAttribute' and manual construction
   * there is no pretty way to create a field from a list of prepared attributes
-  due to the difference in their types
+  because they have different types
   * additional type wrappers in 'AccessRep' to simplify function signatures,
-  which complicates the code somewhat
-  * 'FieldT' is not an object and does not store the data it works with
-  * there are no alternatives for 'FieldT' field type
+  which make code more complicated
+  * 'FieldT' is not an object and store only attributes (procedures and metadata)
+  * 'FieldT'-derived types (such as newtype or wrapper structures) willn't be
+  automatically compatible with the library
   * field creation and operations with it can occur in different monads, which
   is not always convenient and may require additional types to be specified
   * in general, creating fields in the new version is more difficult than in the
@@ -749,7 +751,5 @@ fld ?::= f = \ rep -> maybe (return ()) (\ g -> fld $::= g $ rep) f
        -> RunFieldT m rep
 
 fld ?::~ f = \ rep -> maybe (return ()) (\ g -> fld $::~ g $ rep) f
-
-
 
 

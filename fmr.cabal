@@ -2,7 +2,7 @@ name:          fmr
 version:       0.3
 category:      Syntax
 
-synopsis:      Fields for Monadic Records library
+synopsis:      Functional mutable records
 description:   The generalized, extensible syntax of abstract monadic records.
 
 author:        Andrey Mulik

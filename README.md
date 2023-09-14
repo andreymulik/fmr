@@ -1,4 +1,4 @@
-# Fields for monadic records
+# Functional mutable records
 
 Simple interface for record-like access for any mutable data.
 
