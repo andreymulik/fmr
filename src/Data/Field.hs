@@ -27,7 +27,7 @@ module Data.Field
   IsMVar (..),
   
   -- * Field creation
-  Attribute (..), AccessRep, IsField, field,
+  Attribute (..), AccessRep (..), IsField, field,
   
   -- * Field usage
   UseField, AccessUse,
