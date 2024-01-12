@@ -103,7 +103,7 @@ infixl 0 `Field`
   
   @
     runIdentity $ do
-      idField <- 'field' 'identityP' :: 'Identity' ('FieldT' 'Identity' \'['GetA'] 'Int' 'Int')
+      idField <- 'field' 'identityP' :: 'Identity' ('Field' \'['GetA'] 'Int' 'Int')
       'get' idField 1 -- 'return' 1
   @
   
