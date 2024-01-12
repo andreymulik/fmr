@@ -31,7 +31,7 @@ module Data.Field
   
   -- * Field usage
   UseField, AccessUse,
-  UseAttribute (..), use, sets,
+  UseAttribute (..), var', use, sets,
   HasAttribute, updateAttribute,
   
   -- ** Basic accessors
