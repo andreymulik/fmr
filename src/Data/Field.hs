@@ -123,7 +123,7 @@ infixl 0 `Field`
   
   The value to which @idField@ is applied is also immutable, because all actions
   with it are performed in the 'Identity' monad - this is determined by the
-  first argument 'FieldT' ('Identity').
+  'Identity' - the first type argument of 'FieldT'.
   
   On the next line we apply the 'GetA' attribute of the @idField@ field to
   @rep@ and 'get' a value of type @Identity a@.
@@ -180,9 +180,9 @@ infixl 0 `Field`
     
     -- same as 'get' myField ioref
     getter' <- getGetter myField
-    getter' ioref
+    accessGet getter' ioref
     
-    modifySetter myField $ \\ setter' a -> setter' (max 0 a)
+    modifySetter myField $ \\ (AccessSet setter') -> AccessSet $ \\ a b -> setter' a (max 0 b)
     
     'set' myField ioref 1
     'get' myField ioref
