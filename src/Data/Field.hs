@@ -35,7 +35,7 @@ module Data.Field
   HasAttribute, updateAttribute,
   
   -- ** Basic accessors
-  get, set, modify, modifyM,
+  get, getter, set, setter, modify, modifier, modifyM, modifierM,
   
   -- *** Mutable accessors
   get', set', modify', modifyM',
@@ -175,14 +175,11 @@ infixl 0 `Field`
     -- Create mutable 'IOField' using 'field' procedure.
     myField <- 'field' 'iorefP' :: 'IO' ('IOField' '['ReadA', 'WriteA'] ('IORef' Int) Int)
     
-    let getGetter    = 'use' (Proxy :: Proxy "get") (Proxy :: Proxy "get")
-    let modifySetter = 'use' (Proxy :: Proxy "set") (Proxy :: Proxy "modify")
-    
     -- same as 'get' myField ioref
-    getter' <- getGetter myField
-    accessGet getter' ioref
+    getter' <- 'accessGet' <$> 'getter' myField
+    getter' ioref
     
-    modifySetter myField $ \\ (AccessSet setter') -> AccessSet $ \\ a b -> setter' a (max 0 b)
+    'modifier' myField $ \\ ('AccessSet' setter') -> 'AccessSet' $ \\ a b -> setter' a (max 0 b)
     
     'set' myField ioref 1
     'get' myField ioref
@@ -200,21 +197,21 @@ infixl 0 `Field`
   @
     fileSize' :: IsMVar IO var => Proxy var -> IO (IOField [GetA, SetA, ModifyA, ModifyMA] Handle Integer)
     fileSize' =  \\ var -> do
-      getter <- 'var'' var $ 'AccessGet'    'System.IO.hFileSize'
-      setter <- 'var'' var $ 'AccessSet' 'System.IO.hSetFileSize'
+      getter' <- 'var'' var $ 'AccessGet'    'System.IO.hFileSize'
+      setter' <- 'var'' var $ 'AccessSet' 'System.IO.hSetFileSize'
       
-      modifier \<- 'var'' var . 'AccessModify' $ \\ hdl f -\> do
+      modifier' \<- 'var'' var . 'AccessModify' $ \\ hdl f -\> do
         size <- f \<$\> 'System.IO.hFileSize' hdl
         size <$ 'System.IO.hSetFileSize' hdl size
       
-      modifierM \<- var' var . 'AccessModifyM' $ \\ hdl go -\> do
+      modifierM' \<- var' var . 'AccessModifyM' $ \\ hdl go -\> do
         size <- go =<< hFileSize hdl
         size <$ hSetFileSize hdl size
       
-      'return' $ def \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifierM)
-                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifier)
-                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' setter)
-                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' getter)
+      'return' $ def \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifierM')
+                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifier')
+                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' setter')
+                   \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' getter')
   @
   
   So we use the @var'@ function to specify the variable's type and make the
@@ -249,15 +246,15 @@ infixl 0 `Field`
   -- | With 'Attribute' instances we can create default attributes manually or just use 'field'.
   fileSize' :: IsMVar IO var => Proxy var -> 'IO' ('IOField' ['GetA', 'SetA', 'ModifyA', 'ModifyMA'] 'System.IO.Handle' Integer)
   fileSize' =  \\ p# -> do
-    getter    <- var' p# 'attribute'
-    setter    <- var' p# 'attribute'
-    modifier  <- var' p# 'attribute'
-    modifierM <- var' p# 'attribute'
+    getter'    <- var' p# 'attribute'
+    setter'    <- var' p# 'attribute'
+    modifier'  <- var' p# 'attribute'
+    modifierM' <- var' p# 'attribute'
     
-    'return' $ 'Data.Default.Class.def' \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifierM)
-                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifier)
-                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' setter)
-                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' getter)
+    'return' $ 'Data.Default.Class.def' \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifierM')
+                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' modifier')
+                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' setter')
+                 \`'Field'\` 'SomeProp' ('Prop' 'Data.Default.Class.def' getter')
   @
   
   __Example 6 (custom props):__
@@ -280,8 +277,8 @@ infixl 0 `Field`
     instance (Foldable t, IsMVar m var) => 'UseAttribute' var "get" "length" m rep (t a)
       where
         'useAttr' _ storedGetter rep = do
-          'AccessGet' getter <- fromMRef storedGetter
-          length \<$\> getter rep
+          'AccessGet' getter' <- fromMRef storedGetter
+          length \<$\> getter' rep
     
     listLength' ::
       (
@@ -423,6 +420,8 @@ modify =  use# (proxy# :: Proxy# "modify") (proxy# :: Proxy# "")
 modifyM :: UseField "modifyM" "" api => FieldT m api rep a
         -> rep -> (a -> m a) -> m a
 modifyM =  use# (proxy# :: Proxy# "modifyM") (proxy# :: Proxy# "")
+
+--------------------------------------------------------------------------------
 
 instance UseField "get" "" api => IsLabel "get" (FieldT m api rep a -> rep -> m a)
   where
@@ -801,5 +800,45 @@ fld ?::= f = \ rep -> maybe (return ()) (\ g -> fld $::= g $ rep) f
        -> RunFieldT m rep
 
 fld ?::~ f = \ rep -> maybe (return ()) (\ g -> fld $::~ g $ rep) f
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  Get accessor from field.
+-}
+getter :: UseField name "get" api => FieldT m api rep a
+       -> m (AccessRep name "" m rep a)
+getter =  use Proxy (Proxy :: Proxy "get")
+
+{- |
+  @since 0.3
+  
+  Set accessor from field.
+-}
+setter :: UseField name "set" api => FieldT m api rep a
+       -> AccessRep name "" m rep a -> m ()
+setter =  use Proxy (Proxy :: Proxy "set")
+
+{- |
+  @since 0.3
+  
+  Modify accessor from field by function.
+-}
+modifier :: UseField name "modify" api => FieldT m api rep a
+         -> (AccessRep name "" m rep a -> AccessRep name "" m rep a)
+         -> m (AccessRep name "" m rep a)
+modifier =  use Proxy (Proxy :: Proxy "modify")
+
+{- |
+  @since 0.3
+  
+  Modify accessor from field by prcedure.
+-}
+modifierM :: UseField name "modifyM" api => FieldT m api rep a
+          -> (AccessRep name "" m rep a -> m (AccessRep name "" m rep a))
+          -> m (AccessRep name "" m rep a)
+modifierM =  use Proxy (Proxy :: Proxy "modifyM")
 
 
