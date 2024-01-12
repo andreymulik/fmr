@@ -1,6 +1,6 @@
-{-# LANGUAGE Safe, MagicHash, DataKinds, GADTs, TypeFamilies, TypeOperators #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE Trustworthy, MagicHash, CPP, UndecidableInstances #-}
+{-# LANGUAGE DataKinds, GADTs, TypeFamilies, TypeOperators #-}
 
 {- |
     Module      :  Data.Field.Type
@@ -16,15 +16,23 @@ module Data.Field.Type
   -- * Field
   FieldT ( Field ), Attr, Attr',
   
-  Prop ( Prop ), SomeProp ( SomeProp ), prop#, prop,
+  Attribute (..), field, field#,
+  
+  IsMVar (..), UniqueList, UniqueNames,
   
   UseAttribute (..), HasAttribute, updateAttribute,
   
-  Attribute (..), field, field#,
+  Prop ( Prop ), SomeProp ( SomeProp ), prop#, prop,
   
-  AccessRep (..), AccessUse, IsField, UseField, use, use#,
+  AccessRep (..), AccessUse, IsField, UseField, use, use#, sets,
   
-  IsMVar (..), UniqueList, UniqueNames
+  get, set, modify, modifyM,
+  
+  get', set', modify', modifyM',
+  
+  getter, setter, modifier, modifierM,
+  
+  identityP, strefP, iorefP, mvarP, tvarP
 )
 where
 
@@ -36,6 +44,8 @@ import Data.Field.Utils
 import Data.Field.Prop
 
 import Control.Applicative
+
+import GHC.OverloadedLabels
 
 default ()
 
@@ -78,6 +88,198 @@ instance Default (FieldT m '[] rep a) where def = EmptyField
 
 --------------------------------------------------------------------------------
 
+instance UseField "get" "" api => IsLabel "get" (FieldT m api rep a -> rep -> m a)
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = get
+#else
+    fromLabel _ = get
+#endif
+
+instance UseField "set" "" api => IsLabel "set" (FieldT m api rep a -> rep -> a -> m ())
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = set
+#else
+    fromLabel _ = set
+#endif
+
+instance UseField "modify" "" api => IsLabel "modify" (FieldT m api rep a -> rep -> (a -> a) -> m a)
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = modify
+#else
+    fromLabel _ = modify
+#endif
+
+instance UseField "modifyM" "" api => IsLabel "modifyM" (FieldT m api rep a -> rep -> (a -> m a) -> m a)
+  where
+#if MIN_VERSION_base(4,10,0)
+    fromLabel = modifyM
+#else
+    fromLabel _ = modifyM
+#endif
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  Get some value.
+-}
+get :: UseField "get" "" api => FieldT m api rep a
+    -> rep -> m a
+get =  use# (proxy# :: Proxy# "get") (proxy# :: Proxy# "")
+
+{- |
+  @since 0.3
+  
+  Set some value.
+-}
+set :: UseField "set" "" api => FieldT m api rep a
+    -> rep -> a -> m ()
+set =  use# (proxy# :: Proxy# "set") (proxy# :: Proxy# "")
+
+{- |
+  @since 0.3
+  
+  Modify some value with function.
+-}
+modify :: UseField "modify" "" api => FieldT m api rep a
+       -> rep -> (a -> a) -> m a
+modify =  use# (proxy# :: Proxy# "modify") (proxy# :: Proxy# "")
+
+{- |
+  @since 0.3
+  
+  Modify some value with procedure.
+-}
+modifyM :: UseField "modifyM" "" api => FieldT m api rep a
+        -> rep -> (a -> m a) -> m a
+modifyM =  use# (proxy# :: Proxy# "modifyM") (proxy# :: Proxy# "")
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  Get some accessor.
+-}
+get' :: UseField name "get" api => Proxy name -> FieldT m api rep a
+     -> AccessUse name "get" m rep a
+get' =  flip use (Proxy :: Proxy "get")
+
+{- |
+  @since 0.3
+  
+  Set some accessor.
+-}
+set' :: UseField name "set" api => Proxy name -> FieldT m api rep a
+     -> AccessUse name "set" m rep a
+set' =  flip use (Proxy :: Proxy "set")
+
+{- |
+  @since 0.3
+  
+  Modify some accessor with function.
+-}
+modify' :: UseField name "modify" api => Proxy name -> FieldT m api rep a
+        -> AccessUse name "modify" m rep a
+modify' =  flip use (Proxy :: Proxy "modify")
+
+{- |
+  @since 0.3
+  
+  Modify some accessor with procedure.
+-}
+modifyM' :: UseField name "modifyM" api => Proxy name -> FieldT m api rep a
+         -> AccessUse name "modifyM" m rep a
+modifyM' =  flip use (Proxy :: Proxy "modifyM")
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  Get accessor from field.
+-}
+getter :: UseField name "get" api => FieldT m api rep a
+       -> m (AccessRep name "" m rep a)
+getter =  use Proxy (Proxy :: Proxy "get")
+
+{- |
+  @since 0.3
+  
+  Set accessor from field.
+-}
+setter :: UseField name "set" api => FieldT m api rep a
+       -> AccessRep name "" m rep a -> m ()
+setter =  use Proxy (Proxy :: Proxy "set")
+
+{- |
+  @since 0.3
+  
+  Modify accessor from field by function.
+-}
+modifier :: UseField name "modify" api => FieldT m api rep a
+         -> (AccessRep name "" m rep a -> AccessRep name "" m rep a)
+         -> m (AccessRep name "" m rep a)
+modifier =  use Proxy (Proxy :: Proxy "modify")
+
+{- |
+  @since 0.3
+  
+  Modify accessor from field by prcedure.
+-}
+modifierM :: UseField name "modifyM" api => FieldT m api rep a
+          -> (AccessRep name "" m rep a -> m (AccessRep name "" m rep a))
+          -> m (AccessRep name "" m rep a)
+modifierM =  use Proxy (Proxy :: Proxy "modifyM")
+
+--------------------------------------------------------------------------------
+
+{- |
+  @since 0.3
+  
+  'Proxy' synonym for 'Data.Field.Field' with 'Identity'-stored 'Prop's.
+-}
+identityP :: Proxy Identity
+identityP =  Proxy
+
+{- |
+  @since 0.3
+  
+  'Proxy' synonym for 'Data.Field.Field' with 'STRef'-stored 'Prop's.
+-}
+strefP :: Proxy (STRef s)
+strefP =  Proxy
+
+{- |
+  @since 0.3
+  
+  'Proxy' synonym for 'Data.Field.Field' with 'IORef'-stored 'Prop's.
+-}
+iorefP :: Proxy IORef
+iorefP =  Proxy
+
+{- |
+  @since 0.3
+  
+  'Proxy' synonym for 'Data.Field.Field' with 'MVar'-stored 'Prop's.
+-}
+mvarP :: Proxy MVar
+mvarP =  Proxy
+
+{- |
+  @since 0.3
+  
+  'Proxy' synonym for 'Data.Field.Field' with 'TVar'-stored 'Prop's.
+-}
+tvarP :: Proxy TVar
+tvarP =  Proxy
+
+--------------------------------------------------------------------------------
+
 {- |
   @since 0.3
   
@@ -99,6 +301,8 @@ instance {-# INCOHERENT #-} (UseField name sub api, name /= name')
   where
     useProp name# sub# (Field fld _) = useProp name# sub# fld
 
+--------------------------------------------------------------------------------
+
 {- |
   @since 0.3
   
@@ -118,6 +322,14 @@ use# =  useProp
 use :: UseField name sub api => Proxy name -> Proxy sub
     -> FieldT m api rep a -> AccessUse name sub m rep a
 use =  \ name sub fld -> useProp (toProxy# name) (toProxy# sub) fld
+
+{- |
+  @since 0.3
+  
+  Apply actions to given value and discard results.
+-}
+sets :: Monad m => rep -> [RunFieldT m rep] -> m ()
+sets =  mapM_ . flip ($)
 
 --------------------------------------------------------------------------------
 
@@ -160,6 +372,3 @@ field# =  createField
 -}
 field :: IsField m new var api rep a => Proxy var -> new (FieldT m api rep a)
 field =  \ p -> createField (toProxy# p)
-
-
-
